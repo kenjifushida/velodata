@@ -9,6 +9,11 @@ in the market_listings MongoDB collection for later processing by the matching p
 The scraper is completely independent from the seeder service - it only extracts available
 information from Hard-Off pages and creates market listing documents.
 
+Supported Categories:
+    - watches: Luxury and vintage wristwatches
+    - camera_gear: Digital cameras, lenses, and photography equipment
+    - luxury_items: Designer bags, wallets, and accessories (includes subcategories)
+
 Usage:
     # Dry run (don't save to database, just print)
     python hardoff_scraper.py --category watches --max-pages 2 --dry-run
@@ -16,6 +21,14 @@ Usage:
     # Live run (save to market_listings collection)
     python hardoff_scraper.py --category watches --max-pages 5
     python hardoff_scraper.py --category camera_gear --max-pages 10
+    python hardoff_scraper.py --category luxury_items --max-pages 5
+
+    # Filter by condition ranks (only scrape items in specific conditions)
+    python hardoff_scraper.py --category watches --max-pages 5 --ranks N S A
+    python hardoff_scraper.py --category luxury_items --max-pages 10 --ranks N S
+
+    # Available ranks: N (New), S (Nearly New), A (Excellent), B (Good),
+    #                  C (Fair), D (Poor), JUNK (For parts/not working)
 """
 import sys
 from pathlib import Path
@@ -28,10 +41,10 @@ import argparse
 import time
 import uuid
 import re
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Literal
 from datetime import datetime
 from bs4 import BeautifulSoup
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 try:
     from curl_cffi import requests
@@ -60,16 +73,47 @@ logger = get_logger("hardoff-scraper")
 
 BASE_URL = "https://netmall.hardoff.co.jp"
 
-# Category URLs and niche mappings
-CATEGORIES = {
-    "watches": {
-        "url": "https://netmall.hardoff.co.jp/cate/000100040001/",
-        "niche_type": "WATCH",
-    },
-    "camera_gear": {
-        "url": "https://netmall.hardoff.co.jp/cate/00010003/",
-        "niche_type": "CAMERA_GEAR",
-    },
+# ============================================================================
+# CATEGORY CONFIGURATION
+# ============================================================================
+
+class CategoryConfig(BaseModel):
+    """
+    Configuration for a scrapeable Hard-Off category.
+
+    Attributes:
+        url: Base URL for the category page
+        niche_type: Product niche classification
+        display_name: Human-readable category name
+        subcategories: Optional list of subcategory URLs to scrape
+    """
+    url: str
+    niche_type: Literal["WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "POKEMON_CARD"]
+    display_name: str
+    subcategories: Optional[List[str]] = None
+
+
+# Category registry - maps CLI argument names to category configurations
+CATEGORIES: Dict[str, CategoryConfig] = {
+    "watches": CategoryConfig(
+        url="https://netmall.hardoff.co.jp/cate/000100040001/",
+        niche_type="WATCH",
+        display_name="Watches",
+    ),
+    "camera_gear": CategoryConfig(
+        url="https://netmall.hardoff.co.jp/cate/00010003/",
+        niche_type="CAMERA_GEAR",
+        display_name="Camera Gear",
+    ),
+    "luxury_items": CategoryConfig(
+        url="https://netmall.hardoff.co.jp/cate/00010013/",
+        niche_type="LUXURY_ITEM",
+        display_name="Luxury Items",
+        subcategories=[
+            "https://netmall.hardoff.co.jp/cate/000100130001/",  # Luxury Bags
+            "https://netmall.hardoff.co.jp/cate/000100130002/",  # Luxury Wallets
+        ],
+    ),
 }
 
 # Rank filter mapping (Hard-Off query parameters)
@@ -428,11 +472,9 @@ class CameraGearExtractor(FieldExtractor):
 
         if name:
             # Try to map Japanese subcategory to English enum
-            subcategory_found = False
             for jp_term, eng_category in self.SUBCATEGORY_MAP.items():
                 if jp_term in name:
                     attributes["subcategory"] = eng_category
-                    subcategory_found = True
                     break
 
             # Store raw subcategory name for debugging/future NLP
@@ -476,10 +518,78 @@ class WatchExtractor(FieldExtractor):
         return attributes
 
 
+class LuxuryItemExtractor(FieldExtractor):
+    """
+    Field extractor for Luxury Item products (bags, wallets, accessories).
+
+    Hard-Off HTML structure for luxury items:
+    - .item-brand-name: Brand (e.g., "LOUIS VUITTON", "CHANEL", "GUCCI", "HERMÈS")
+    - .item-name: Product name/description (e.g., "ハンドバッグ", "長財布", "スカーフ")
+    - .item-code: Model/reference number (e.g., "M51365", "A80603")
+    """
+
+    # Japanese subcategory to English mapping
+    SUBCATEGORY_MAP = {
+        # Bags
+        "バッグ": "BAG",
+        "ハンドバッグ": "BAG",
+        "ショルダーバッグ": "BAG",
+        "トートバッグ": "BAG",
+        "クラッチバッグ": "BAG",
+        "リュック": "BAG",
+        "バックパック": "BAG",
+        "ボストンバッグ": "BAG",
+        "ウエストバッグ": "BAG",
+        # Wallets
+        "財布": "WALLET",
+        "長財布": "WALLET",
+        "二つ折り財布": "WALLET",
+        "三つ折り財布": "WALLET",
+        "コインケース": "WALLET",
+        "カードケース": "WALLET",
+        "キーケース": "WALLET",
+        # Accessories
+        "スカーフ": "ACCESSORY",
+        "ベルト": "ACCESSORY",
+        "サングラス": "ACCESSORY",
+        "時計": "ACCESSORY",
+        "ジュエリー": "ACCESSORY",
+        "アクセサリー": "ACCESSORY",
+    }
+
+    def extract_attributes(
+        self,
+        brand: str | None,
+        name: str | None,
+        code: str | None
+    ) -> Dict:
+        attributes = {}
+
+        if brand:
+            attributes["brand"] = brand
+
+        if name:
+            # Try to map Japanese subcategory to English enum
+            for jp_term, eng_category in self.SUBCATEGORY_MAP.items():
+                if jp_term in name:
+                    attributes["subcategory"] = eng_category
+                    break
+
+            # Store raw subcategory name for debugging/future NLP
+            attributes["subcategory_raw"] = name
+
+        if code:
+            # Model/reference number from .item-code
+            attributes["model_number"] = code
+
+        return attributes
+
+
 # Extractor registry - maps niche types to their extractors
 FIELD_EXTRACTORS: Dict[str, FieldExtractor] = {
     "CAMERA_GEAR": CameraGearExtractor(),
     "WATCH": WatchExtractor(),
+    "LUXURY_ITEM": LuxuryItemExtractor(),
 }
 
 
@@ -634,11 +744,14 @@ Examples:
   # Scrape camera gear
   python hardoff_scraper.py --category camera_gear --max-pages 10
 
+  # Scrape luxury items (bags and wallets - includes subcategories)
+  python hardoff_scraper.py --category luxury_items --max-pages 5
+
   # Filter by condition ranks (N=New, S=Nearly New, A=Excellent)
   python hardoff_scraper.py --category watches --ranks N S A --max-pages 5
 
-  # Only scrape items in excellent condition or better
-  python hardoff_scraper.py --category camera_gear --ranks N S A --max-pages 10 --dry-run
+  # Only scrape luxury items in excellent condition or better
+  python hardoff_scraper.py --category luxury_items --ranks N S A --max-pages 10 --dry-run
         """
     )
     parser.add_argument(
@@ -680,7 +793,7 @@ Examples:
         extra={
             "session_id": session_id,
             "category": args.category,
-            "niche_type": category_config["niche_type"],
+            "niche_type": category_config.niche_type,
             "max_pages": args.max_pages,
             "ranks": args.ranks,
             "dry_run": args.dry_run,
@@ -691,18 +804,43 @@ Examples:
     total_seeded = 0
 
     try:
-        # Scrape category
-        products_data = scrape_hardoff_category(
-            category_url=category_config["url"],
-            niche_type=category_config["niche_type"],
-            max_pages=args.max_pages,
-            ranks=args.ranks,
-            session_id=session_id
-        )
-        total_scraped = len(products_data)
+        # Build list of URLs to scrape (main category + optional subcategories)
+        urls_to_scrape = [category_config.url]
+        if category_config.subcategories:
+            urls_to_scrape.extend(category_config.subcategories)
+            logger.info(
+                f"Category has {len(category_config.subcategories)} subcategories",
+                extra={
+                    "session_id": session_id,
+                    "total_urls": len(urls_to_scrape)
+                }
+            )
 
-        if products_data:
-            inserted = insert_market_listings(products_data, dry_run=args.dry_run)
+        # Scrape each URL
+        all_products = []
+        for url_index, url in enumerate(urls_to_scrape, 1):
+            logger.info(
+                f"Scraping URL {url_index}/{len(urls_to_scrape)}: {url}",
+                extra={"session_id": session_id}
+            )
+
+            products_data = scrape_hardoff_category(
+                category_url=url,
+                niche_type=category_config.niche_type,
+                max_pages=args.max_pages,
+                ranks=args.ranks,
+                session_id=session_id
+            )
+            all_products.extend(products_data)
+            logger.info(
+                f"URL {url_index} yielded {len(products_data)} products",
+                extra={"session_id": session_id, "url": url}
+            )
+
+        total_scraped = len(all_products)
+
+        if all_products:
+            inserted = insert_market_listings(all_products, dry_run=args.dry_run)
             total_seeded = inserted
         else:
             logger.warning("No products found to insert", extra={"session_id": session_id})

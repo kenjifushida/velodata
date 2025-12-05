@@ -58,6 +58,7 @@ const EBAY_CATEGORIES: Record<string, string> = {
   WATCH: '31387', // Wristwatches
   CAMERA_GEAR: '15230', // Digital Cameras
   POKEMON_CARD: '183454', // Pokemon Trading Card Game
+  LUXURY_ITEM: '169291', // Women's Bags & Handbags
 };
 
 /**
@@ -85,6 +86,7 @@ function generateEBayDescription(listing: MarketListing): string {
     WATCH: 'Authentic Pre-Owned Luxury Watch from Japan',
     CAMERA_GEAR: 'Professional Camera Equipment from Japan',
     POKEMON_CARD: 'Authentic Pokemon Trading Card from Japan',
+    LUXURY_ITEM: 'Authentic Designer Luxury Item from Japan',
   };
 
   const title = nicheDescriptions[listing.niche_type] || 'Authentic Product from Japan';
@@ -139,14 +141,49 @@ function mapConditionToText(rank?: string): string {
 }
 
 /**
- * Convert market listing to eBay CSV row
+ * eBay fee structure
  */
-function listingToEBayRow(listing: MarketListing): EBayCSVRow {
+const EBAY_FINAL_VALUE_FEE = 0.1325; // 13.25%
+const EBAY_PAYMENT_PROCESSING_PERCENT = 0.0235; // 2.35%
+const EBAY_PAYMENT_PROCESSING_FIXED = 0.30; // $0.30
+const EBAY_INTERNATIONAL_FEE = 0.0165; // 1.65%
+const SHIPPING_COST_USD = 30.0; // $30 FedEx International
+const JPY_TO_USD_RATE = 0.0067; // Exchange rate
+
+/**
+ * Calculate sale price to achieve desired net margin after eBay fees
+ *
+ * @param costUSD - Item cost in USD
+ * @param desiredMarginPercent - Desired net profit margin (e.g., 25 for 25%)
+ * @returns Sale price that achieves the desired net margin
+ */
+function calculateSalePriceWithMargin(costUSD: number, desiredMarginPercent: number): number {
+  const totalFeePercent =
+    EBAY_FINAL_VALUE_FEE + EBAY_PAYMENT_PROCESSING_PERCENT + EBAY_INTERNATIONAL_FEE;
+
+  const desiredProfit = costUSD * (desiredMarginPercent / 100);
+
+  const salePrice =
+    (costUSD + SHIPPING_COST_USD + desiredProfit + EBAY_PAYMENT_PROCESSING_FIXED) /
+    (1 - totalFeePercent);
+
+  return salePrice;
+}
+
+/**
+ * Convert market listing to eBay CSV row
+ *
+ * @param listing - Market listing to convert
+ * @param netMarginPercent - Desired net profit margin after fees (default 25%)
+ */
+function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25): EBayCSVRow {
   const { attributes } = listing;
 
-  // Convert JPY to USD (approximate exchange rate - should be updated)
-  const exchangeRate = 0.0067; // 1 JPY = 0.0067 USD
-  const priceUSD = (listing.price_jpy * exchangeRate * 1.5).toFixed(2); // 50% markup
+  // Convert JPY to USD
+  const costUSD = listing.price_jpy * JPY_TO_USD_RATE;
+
+  // Calculate sale price with desired net margin
+  const priceUSD = calculateSalePriceWithMargin(costUSD, netMarginPercent).toFixed(2);
 
   const row: EBayCSVRow = {
     // Required fields
@@ -175,8 +212,8 @@ function listingToEBayRow(listing: MarketListing): EBayCSVRow {
 
     // Shipping
     '*ShippingType': 'Flat',
-    'ShippingService-1:Option': 'USPSPriorityMailInternational',
-    'ShippingService-1:Cost': '25.00', // International shipping from Japan
+    'ShippingService-1:Option': 'ShippingMethodStandard',
+    'ShippingService-1:Cost': '30.00', // International shipping from Japan (FedEx)
     'DispatchTimeMax': '5', // 5 business days to ship
 
     // Returns
@@ -208,9 +245,13 @@ function objectToCSVLine(obj: any, headers: string[]): string {
 
 /**
  * Export selected listings to eBay CSV format
+ *
+ * @param listingIds - Array of listing IDs to export
+ * @param netMarginPercent - Desired net profit margin after eBay fees (default 25%)
  */
 export async function exportToEBayCSV(
-  listingIds: string[]
+  listingIds: string[],
+  netMarginPercent: number = 25
 ): Promise<{ success: boolean; csv?: string; filename?: string; error?: string }> {
   try {
     if (!listingIds || listingIds.length === 0) {
@@ -235,8 +276,8 @@ export async function exportToEBayCSV(
       };
     }
 
-    // Convert to eBay CSV rows
-    const csvRows = listings.map(listingToEBayRow);
+    // Convert to eBay CSV rows with specified margin
+    const csvRows = listings.map((listing) => listingToEBayRow(listing, netMarginPercent));
 
     // Define CSV headers (eBay File Exchange format)
     const headers = [
