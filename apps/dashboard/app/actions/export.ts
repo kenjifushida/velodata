@@ -34,9 +34,15 @@ interface EBayCSVRow {
   'PicURL': string;
 
   // Item specifics
-  'C:Condition': string;
+  'ConditionID': string;
   'C:Model': string;
   'C:Type': string;
+
+  // Luxury item specifics (required for category 169291 - Women's Bags & Handbags)
+  'C:Exterior Color'?: string;
+  'C:Exterior Material'?: string;
+  'C:Department'?: string;
+  'C:Style'?: string;
 
   // Shipping
   '*ShippingType': string;
@@ -58,13 +64,50 @@ const EBAY_CATEGORIES: Record<string, string> = {
   WATCH: '31387', // Wristwatches
   CAMERA_GEAR: '15230', // Digital Cameras
   POKEMON_CARD: '183454', // Pokemon Trading Card Game
-  LUXURY_ITEM: '169291', // Women's Bags & Handbags
+  LUXURY_ITEM: '169291', // Women's Bags & Handbags (default)
 };
 
 /**
- * Map condition rank to eBay condition ID
+ * eBay category mapping for luxury item subcategories
  */
-function mapToEBayCondition(rank?: string): string {
+const LUXURY_SUBCATEGORY_CATEGORIES: Record<string, string> = {
+  BAG: '169291', // Women's Bags & Handbags
+  WALLET: '45258', // Women's Accessories > Wallets
+  ACCESSORY: '155183', // Women's Accessories
+};
+
+/**
+ * Get eBay category for a luxury item based on subcategory
+ */
+function getLuxuryItemCategory(subcategory?: string): string {
+  if (subcategory && LUXURY_SUBCATEGORY_CATEGORIES[subcategory]) {
+    return LUXURY_SUBCATEGORY_CATEGORIES[subcategory];
+  }
+  return EBAY_CATEGORIES.LUXURY_ITEM; // Default to bags category
+}
+
+/**
+ * Map condition rank to eBay condition ID
+ *
+ * @param rank - Condition rank from Hard-Off
+ * @param nicheType - Product niche type (different categories may require different condition formats)
+ */
+function mapToEBayCondition(rank?: string, nicheType?: string): string {
+  // For luxury items (Women's Bags & Handbags), use fashion category condition IDs
+  if (nicheType === 'LUXURY_ITEM') {
+    const luxuryConditionMap: Record<string, string> = {
+      N: '1000', // New with tags
+      S: '1500', // New without tags
+      A: '3000', // Pre-owned - Excellent
+      B: '4000', // Pre-owned - Very Good
+      C: '5000', // Pre-owned - Good
+      D: '6000', // Pre-owned - Fair
+      JUNK: '7000', // For parts or not working
+    };
+    return rank ? (luxuryConditionMap[rank] || '3000') : '3000';
+  }
+
+  // For other categories, use standard condition IDs
   const conditionMap: Record<string, string> = {
     N: '1000', // New
     S: '1500', // New other (see details)
@@ -141,6 +184,40 @@ function mapConditionToText(rank?: string): string {
 }
 
 /**
+ * Map subcategory to eBay style for luxury items
+ */
+function mapSubcategoryToStyle(subcategory?: string): string {
+  const styleMap: Record<string, string> = {
+    BAG: 'Shoulder Bag',
+    WALLET: 'Wallet',
+    ACCESSORY: 'Fashion Accessory',
+  };
+
+  return subcategory ? (styleMap[subcategory] || 'Shoulder Bag') : 'Shoulder Bag';
+}
+
+/**
+ * Determine exterior material based on brand and title
+ * Most luxury brands use leather, but some use canvas (Louis Vuitton, Gucci)
+ */
+function determineExteriorMaterial(brand?: string, title?: string): string {
+  const brandLower = brand?.toLowerCase() || '';
+  const titleLower = title?.toLowerCase() || '';
+
+  // Canvas-heavy brands
+  if (
+    brandLower.includes('louis vuitton') ||
+    brandLower.includes('gucci') ||
+    titleLower.includes('canvas')
+  ) {
+    return 'Canvas';
+  }
+
+  // Default to leather for luxury items
+  return 'Leather';
+}
+
+/**
  * eBay fee structure
  */
 const EBAY_FINAL_VALUE_FEE = 0.1325; // 13.25%
@@ -185,10 +262,15 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
   // Calculate sale price with desired net margin
   const priceUSD = calculateSalePriceWithMargin(costUSD, netMarginPercent).toFixed(2);
 
+  // Determine eBay category (use subcategory for luxury items)
+  const ebayCategory = listing.niche_type === 'LUXURY_ITEM'
+    ? getLuxuryItemCategory(attributes.subcategory)
+    : (EBAY_CATEGORIES[listing.niche_type] || '15230');
+
   const row: EBayCSVRow = {
     // Required fields
     '*Action(SiteID=US|Country=US|Currency=USD|Version=1193)': 'Add',
-    '*Category': EBAY_CATEGORIES[listing.niche_type] || '15230',
+    '*Category': ebayCategory,
     '*Title': listing.title.substring(0, 80), // eBay title limit is 80 characters
     '*StartPrice': priceUSD,
     '*Quantity': '1',
@@ -206,7 +288,7 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
     'PicURL': listing.image_url || '',
 
     // Item specifics
-    'C:Condition': mapToEBayCondition(attributes.condition_rank),
+    'ConditionID': mapToEBayCondition(attributes.condition_rank, listing.niche_type),
     'C:Model': attributes.model || attributes.model_number || attributes.reference_number || 'See description',
     'C:Type': attributes.subcategory || listing.niche_type,
 
@@ -222,6 +304,14 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
     'RefundOption': 'MoneyBack',
     'ShippingCostPaidByOption': 'Buyer',
   };
+
+  // Add luxury item specifics if applicable (required for Women's Bags & Handbags category)
+  if (listing.niche_type === 'LUXURY_ITEM') {
+    row['C:Exterior Color'] = 'Multicolor'; // Safe default, can be edited later
+    row['C:Exterior Material'] = determineExteriorMaterial(attributes.brand, listing.title);
+    row['C:Department'] = 'Women'; // Most luxury items in this category are women's
+    row['C:Style'] = mapSubcategoryToStyle(attributes.subcategory);
+  }
 
   return row;
 }
@@ -294,9 +384,13 @@ export async function exportToEBayCSV(
       'Product:UPC',
       'Product:ISBN',
       'PicURL',
-      'C:Condition',
+      'ConditionID',
       'C:Model',
       'C:Type',
+      'C:Exterior Color',
+      'C:Exterior Material',
+      'C:Department',
+      'C:Style',
       '*ShippingType',
       'ShippingService-1:Option',
       'ShippingService-1:Cost',
