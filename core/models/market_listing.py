@@ -6,7 +6,7 @@ Architecture: Flexible Attributes Pattern
 - Niche-specific data stored in polymorphic 'attributes' dictionary
 - Processing pipeline enriches listings with matching and profit calculations
 """
-from typing import Literal, Optional, Dict, Any
+from typing import Literal, Optional, Dict, Any, List
 from datetime import datetime
 from pydantic import BaseModel, Field, HttpUrl, ConfigDict
 
@@ -131,7 +131,7 @@ class MarketListing(BaseModel):
             title="Canon EOS R5 ミラーレス一眼カメラ",
             price_jpy=320000,
             url="https://netmall.hardoff.co.jp/product/10123456",
-            image_url="https://...",
+            image_urls=["https://...", "https://...", "https://..."],
             attributes={
                 "brand": "Canon",
                 "model_number": "EOS R5",
@@ -219,9 +219,9 @@ class MarketListing(BaseModel):
         description="Direct URL to the listing on the marketplace"
     )
 
-    image_url: Optional[HttpUrl] = Field(
-        None,
-        description="URL to product image (if available)"
+    image_urls: List[HttpUrl] = Field(
+        default_factory=list,
+        description="URLs to all product images from the listing detail page"
     )
 
     listed_at: Optional[datetime] = Field(
@@ -300,12 +300,12 @@ class MarketListing(BaseModel):
 
 def create_hardoff_listing(
     external_id: str,
-    niche_type: Literal["POKEMON_CARD", "WATCH", "CAMERA_GEAR"],
+    niche_type: Literal["POKEMON_CARD", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM"],
     title: str,
     price_jpy: int,
     url: str,
     attributes: Dict[str, Any],
-    image_url: Optional[str] = None,
+    image_urls: Optional[List[str]] = None,
     listed_at: Optional[datetime] = None,
     scrape_session_id: Optional[str] = None,
 ) -> MarketListing:
@@ -319,7 +319,7 @@ def create_hardoff_listing(
         price_jpy: Price in Yen
         url: Direct URL to listing
         attributes: Niche-specific attributes
-        image_url: Product image URL
+        image_urls: List of product image URLs
         listed_at: When the seller originally listed the item (if available)
         scrape_session_id: Scraping session correlation ID
 
@@ -333,6 +333,7 @@ def create_hardoff_listing(
             title="Canon EOS R5 ミラーレス一眼カメラ",
             price_jpy=320000,
             url="https://netmall.hardoff.co.jp/product/10123456",
+            image_urls=["https://...", "https://..."],
             attributes={
                 "brand": "Canon",
                 "model_number": "EOS R5",
@@ -349,7 +350,7 @@ def create_hardoff_listing(
         title=title,
         price_jpy=price_jpy,
         url=url,
-        image_url=image_url,
+        image_urls=image_urls or [],
         listed_at=listed_at,
         attributes=attributes,
         scrape_session_id=scrape_session_id,

@@ -243,8 +243,18 @@ def scrape_hardoff_category(
             # Extract product data
             for idx, card in enumerate(product_cards):
                 try:
-                    product_data = extract_product_from_card(card, niche_type, correlation_id)
+                    product_data = extract_product_from_card(card, niche_type, correlation_id, session)
                     if product_data:
+                        # Client-side rank filtering (Hard-Off server filtering may be unreliable)
+                        if ranks:
+                            product_rank = product_data.get('attributes', {}).get('condition_rank')
+                            if product_rank and product_rank not in ranks:
+                                logger.debug(
+                                    f"Skipping product {product_data.get('external_id')} - rank {product_rank} not in filter {ranks}",
+                                    extra={"correlation_id": correlation_id}
+                                )
+                                continue
+
                         products.append(product_data)
                         logger.debug(
                             f"Extracted product: {product_data.get('external_id')}",
@@ -278,10 +288,110 @@ def scrape_hardoff_category(
     return products
 
 
+def upgrade_image_resolution(image_url: str) -> str:
+    """
+    Upgrade Hard-Off ImageFlux URL to high resolution (1280x1280).
+
+    Hard-Off uses ImageFlux CDN with query parameters like w=231,h=182.
+    This function replaces those with w=1280,h=1280 for eBay export quality.
+
+    Args:
+        image_url: Original image URL from Hard-Off
+
+    Returns:
+        Image URL with upgraded resolution parameters
+    """
+    # ImageFlux URLs have format: https://p1-d9ebd2ee.imageflux.jp/c!/w=231,h=182,a=0,u=0,q=75/103061/image.jpg
+    # We want to replace w=XXX,h=YYY with w=1280,h=1280
+    if 'imageflux.jp' in image_url and '/c!/' in image_url:
+        # Replace width parameter
+        image_url = re.sub(r'w=\d+', 'w=1280', image_url)
+        # Replace height parameter
+        image_url = re.sub(r'h=\d+', 'h=1280', image_url)
+
+    return image_url
+
+
+def fetch_product_images(product_url: str, session: requests.Session, correlation_id: str) -> List[str]:
+    """
+    Fetch all product images from the product detail page.
+
+    Args:
+        product_url: URL to the product detail page
+        session: curl_cffi session for making requests
+        correlation_id: Session correlation ID for logging
+
+    Returns:
+        List of high-resolution image URLs extracted from the product detail page
+    """
+    try:
+        logger.debug(
+            f"Fetching product images from detail page",
+            extra={"url": product_url, "correlation_id": correlation_id}
+        )
+
+        # Fetch the product detail page using the existing session
+        response = session.get(product_url, timeout=30, impersonate="chrome110")
+
+        if response.status_code != 200:
+            logger.warning(
+                f"Failed to fetch product detail page: {response.status_code}",
+                extra={"url": product_url, "correlation_id": correlation_id}
+            )
+            return []
+
+        # Parse HTML
+        soup = BeautifulSoup(response.text, 'lxml')
+
+        # Small delay to be respectful to the server
+        time.sleep(0.5)
+
+        # Find the product images wrapper
+        images_wrapper = soup.select_one('.product-detail-images-wrapper ul')
+        if not images_wrapper:
+            logger.warning(
+                "Could not find product-detail-images-wrapper",
+                extra={"url": product_url, "correlation_id": correlation_id}
+            )
+            return []
+
+        # Extract all image URLs from the wrapper
+        image_urls = []
+        for img_elem in images_wrapper.select('li img'):
+            img_src = img_elem.get('src', '')
+            # Skip placeholder images
+            if img_src and not img_src.startswith('data:') and 'blankimg' not in img_src:
+                # Make absolute URL if needed
+                if img_src.startswith('http'):
+                    full_url = img_src
+                else:
+                    full_url = BASE_URL + img_src
+
+                # Upgrade to high resolution for eBay export quality
+                high_res_url = upgrade_image_resolution(full_url)
+                image_urls.append(high_res_url)
+
+        logger.debug(
+            f"Extracted {len(image_urls)} high-resolution images from product detail page",
+            extra={"url": product_url, "correlation_id": correlation_id, "count": len(image_urls)}
+        )
+
+        return image_urls
+
+    except Exception as e:
+        logger.error(
+            "Failed to fetch product images",
+            exc_info=True,
+            extra={"url": product_url, "correlation_id": correlation_id}
+        )
+        return []
+
+
 def extract_product_from_card(
     card: BeautifulSoup,
     niche_type: str,
-    correlation_id: str
+    correlation_id: str,
+    session: requests.Session
 ) -> Optional[Dict]:
     """
     Extract product data from a Hard-Off product card HTML element.
@@ -290,6 +400,7 @@ def extract_product_from_card(
         card: BeautifulSoup element for product card
         niche_type: Product niche type
         correlation_id: Session correlation ID
+        session: curl_cffi session for fetching product details
 
     Returns:
         Dictionary with product data or None if extraction fails
@@ -358,13 +469,8 @@ def extract_product_from_card(
                     extra={"external_id": external_id, "correlation_id": correlation_id}
                 )
 
-        # Extract image URL
-        img_elem = card.select_one('.item-img-square img')
-        image_url = None
-        if img_elem:
-            img_src = img_elem.get('src', '')
-            if img_src and not img_src.startswith('data:'):
-                image_url = img_src if img_src.startswith('http') else BASE_URL + img_src
+        # Fetch all images from product detail page
+        image_urls = fetch_product_images(product_url, session, correlation_id)
 
         # Build attributes dictionary with common fields
         attributes = {
@@ -389,7 +495,7 @@ def extract_product_from_card(
             "title": title,
             "price_jpy": price_jpy,
             "url": product_url,
-            "image_url": image_url,
+            "image_urls": image_urls,
             "attributes": attributes,
             "scrape_session_id": correlation_id,
         }
@@ -634,7 +740,7 @@ def insert_market_listings(products_data: List[Dict], dry_run: bool = False) -> 
                 price_jpy=product["price_jpy"],
                 url=product["url"],
                 attributes=product["attributes"],
-                image_url=product.get("image_url"),
+                image_urls=product.get("image_urls"),
                 scrape_session_id=product.get("scrape_session_id"),
             )
 
@@ -646,8 +752,10 @@ def insert_market_listings(products_data: List[Dict], dry_run: bool = False) -> 
                 print(f"Title: {listing.title}")
                 print(f"Price: ¥{listing.price_jpy:,}")
                 print(f"URL: {listing.url}")
-                if listing.image_url:
-                    print(f"Image: {listing.image_url}")
+                if listing.image_urls and len(listing.image_urls) > 0:
+                    print(f"Images: {len(listing.image_urls)} image(s)")
+                    for idx, img_url in enumerate(listing.image_urls[:3], 1):  # Show first 3
+                        print(f"  [{idx}] {img_url}")
                 if listing.attributes.get("condition_rank"):
                     print(f"Condition Rank: {listing.attributes['condition_rank']}")
                 print(f"Attributes: {listing.attributes}")

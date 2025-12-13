@@ -30,7 +30,7 @@ interface EBayCSVRow {
   'Product:UPC': string;
   'Product:ISBN': string;
 
-  // Images
+  // Images (eBay supports up to 12 images, pipe-separated in single PicURL field)
   'PicURL': string;
 
   // Item specifics
@@ -38,11 +38,12 @@ interface EBayCSVRow {
   'C:Model': string;
   'C:Type': string;
 
-  // Luxury item specifics (required for category 169291 - Women's Bags & Handbags)
-  'C:Exterior Color'?: string;
-  'C:Exterior Material'?: string;
-  'C:Department'?: string;
-  'C:Style'?: string;
+  // Luxury item specifics (category-dependent)
+  'C:Exterior Color'?: string;  // Required for bags (169291)
+  'C:Exterior Material'?: string;  // Required for bags (169291)
+  'C:Department'?: string;  // Required for bags (169291)
+  'C:Style'?: string;  // Required for bags (169291)
+  'Color'?: string;  // Required for wallets (45258) and accessories (155183)
 
   // Shipping
   '*ShippingType': string;
@@ -93,16 +94,17 @@ function getLuxuryItemCategory(subcategory?: string): string {
  * @param nicheType - Product niche type (different categories may require different condition formats)
  */
 function mapToEBayCondition(rank?: string, nicheType?: string): string {
-  // For luxury items (Women's Bags & Handbags), use fashion category condition IDs
+  // For luxury items (Women's Bags & Handbags category 169291), use specific condition IDs
+  // eBay luxury/fashion categories only accept: 1000, 1500, 1750, 3000
   if (nicheType === 'LUXURY_ITEM') {
     const luxuryConditionMap: Record<string, string> = {
       N: '1000', // New with tags
       S: '1500', // New without tags
-      A: '3000', // Pre-owned - Excellent
-      B: '4000', // Pre-owned - Very Good
-      C: '5000', // Pre-owned - Good
-      D: '6000', // Pre-owned - Fair
-      JUNK: '7000', // For parts or not working
+      A: '1750', // New with defects
+      B: '3000', // Pre-owned (eBay doesn't have a "Very Good" for luxury, map to Pre-owned)
+      C: '3000', // Pre-owned
+      D: '3000', // Pre-owned
+      JUNK: '3000', // Pre-owned (eBay doesn't allow "parts/not working" for luxury items)
     };
     return rank ? (luxuryConditionMap[rank] || '3000') : '3000';
   }
@@ -126,38 +128,29 @@ function mapToEBayCondition(rank?: string, nicheType?: string): string {
  */
 function generateEBayDescription(listing: MarketListing): string {
   const nicheDescriptions: Record<string, string> = {
-    WATCH: 'Authentic Pre-Owned Luxury Watch from Japan',
-    CAMERA_GEAR: 'Professional Camera Equipment from Japan',
-    POKEMON_CARD: 'Authentic Pokemon Trading Card from Japan',
-    LUXURY_ITEM: 'Authentic Designer Luxury Item from Japan',
+    WATCH: 'Authentic Pre-Owned Luxury Watch',
+    CAMERA_GEAR: 'Professional Camera Equipment',
+    POKEMON_CARD: 'Authentic Pokemon Trading Card',
+    LUXURY_ITEM: 'Authentic Designer Luxury Item',
   };
 
-  const title = nicheDescriptions[listing.niche_type] || 'Authentic Product from Japan';
+  const title = nicheDescriptions[listing.niche_type] || 'Authentic Pre-Owned Item';
 
   // eBay allows HTML in descriptions
   const description = `
 <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
   <h2>${title}</h2>
 
-  <p><strong>Shipped Direct from Japan</strong></p>
-
-  <p>This is an original, authentic product sourced directly from a trusted Japanese marketplace.
-  Japanese pre-owned items are renowned for their exceptional condition standards and quality.</p>
+  <p><strong>Sourced and Shipped from Japan</strong></p>
 
   <h3>Item Details</h3>
   <ul>
     <li><strong>Condition:</strong> ${mapConditionToText(listing.attributes.condition_rank)}</li>
-    <li><strong>Source:</strong> ${listing.source.display_name}</li>
-    <li><strong>Origin:</strong> Japan</li>
   </ul>
 
   <h3>Shipping & Packaging</h3>
   <p>All items are carefully inspected, authenticated, and securely packaged with bubble wrap and
   protective materials to ensure safe international delivery.</p>
-
-  <h3>Condition Grading</h3>
-  <p>Japanese marketplace condition grades are highly reliable. Items graded as "Excellent" or better
-  show minimal signs of use.</p>
 
   <p><em>All items are sold as-is. Please review the condition grade and photos carefully before purchase.</em></p>
 </div>
@@ -215,6 +208,74 @@ function determineExteriorMaterial(brand?: string, title?: string): string {
 
   // Default to leather for luxury items
   return 'Leather';
+}
+
+/**
+ * Determine primary color from product title and brand
+ * eBay requires specific color values, not "Multicolor"
+ *
+ * Common luxury brand color patterns are checked first, then fallback to common colors
+ */
+function determineColor(brand?: string, title?: string): string {
+  const titleLower = title?.toLowerCase() || '';
+  const brandLower = brand?.toLowerCase() || '';
+
+  // Color keyword mapping - order matters (more specific first)
+  const colorPatterns: Record<string, string> = {
+    // Specific shades first
+    'navy': 'Blue',
+    'beige': 'Beige',
+    'tan': 'Beige',
+    'burgundy': 'Red',
+    'rose': 'Pink',
+    'blush': 'Pink',
+    'cognac': 'Brown',
+    'camel': 'Brown',
+    'khaki': 'Beige',
+    'cream': 'White',
+    'ivory': 'White',
+    'silver': 'Silver',
+    'gold': 'Gold',
+    'metallic': 'Silver',
+
+    // Basic colors
+    'black': 'Black',
+    'white': 'White',
+    'brown': 'Brown',
+    'red': 'Red',
+    'blue': 'Blue',
+    'green': 'Green',
+    'pink': 'Pink',
+    'purple': 'Purple',
+    'yellow': 'Yellow',
+    'orange': 'Orange',
+    'gray': 'Gray',
+    'grey': 'Gray',
+  };
+
+  // Check title for color keywords
+  for (const [pattern, color] of Object.entries(colorPatterns)) {
+    if (titleLower.includes(pattern)) {
+      return color;
+    }
+  }
+
+  // Brand-specific defaults based on common colorways
+  if (brandLower.includes('louis vuitton')) {
+    return 'Brown'; // Classic monogram canvas is brown
+  }
+  if (brandLower.includes('gucci')) {
+    return 'Brown'; // GG canvas is typically brown/beige
+  }
+  if (brandLower.includes('chanel')) {
+    return 'Black'; // Classic Chanel is often black
+  }
+  if (brandLower.includes('hermes') || brandLower.includes('hermès')) {
+    return 'Brown'; // Classic Hermès is often brown/tan
+  }
+
+  // Default fallback - Brown is safe for most luxury leather goods
+  return 'Brown';
 }
 
 /**
@@ -284,8 +345,8 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
     'Product:UPC': 'Does not apply',
     'Product:ISBN': 'Does not apply',
 
-    // Images
-    'PicURL': listing.image_url || '',
+    // Images (eBay supports up to 12 images, pipe-separated)
+    'PicURL': listing.image_urls.slice(0, 12).join('|'),
 
     // Item specifics
     'ConditionID': mapToEBayCondition(attributes.condition_rank, listing.niche_type),
@@ -296,7 +357,7 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
     '*ShippingType': 'Flat',
     'ShippingService-1:Option': 'ShippingMethodStandard',
     'ShippingService-1:Cost': '30.00', // International shipping from Japan (FedEx)
-    'DispatchTimeMax': '5', // 5 business days to ship
+    'DispatchTimeMax': '7', // 7 business days to ship
 
     // Returns
     'ReturnsAcceptedOption': 'ReturnsAccepted',
@@ -305,12 +366,28 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
     'ShippingCostPaidByOption': 'Buyer',
   };
 
-  // Add luxury item specifics if applicable (required for Women's Bags & Handbags category)
+  // Add luxury item specifics based on subcategory
   if (listing.niche_type === 'LUXURY_ITEM') {
-    row['C:Exterior Color'] = 'Multicolor'; // Safe default, can be edited later
-    row['C:Exterior Material'] = determineExteriorMaterial(attributes.brand, listing.title);
-    row['C:Department'] = 'Women'; // Most luxury items in this category are women's
-    row['C:Style'] = mapSubcategoryToStyle(attributes.subcategory);
+    const subcategory = attributes.subcategory;
+
+    if (subcategory === 'BAG') {
+      // Category 169291 (Women's Bags & Handbags) - uses C:Exterior Color
+      row['C:Exterior Color'] = determineColor(attributes.brand, listing.title);
+      row['C:Exterior Material'] = determineExteriorMaterial(attributes.brand, listing.title);
+      row['C:Department'] = 'Women';
+      row['C:Style'] = 'Shoulder Bag';
+    } else if (subcategory === 'WALLET' || subcategory === 'ACCESSORY') {
+      // Categories 45258 (Wallets) and 155183 (Accessories) - use Color (not C:Exterior Color)
+      row['Color'] = determineColor(attributes.brand, listing.title);
+      row['C:Department'] = 'Women';
+      row['C:Style'] = mapSubcategoryToStyle(subcategory);
+    } else {
+      // Default to bag fields if subcategory is unknown
+      row['C:Exterior Color'] = determineColor(attributes.brand, listing.title);
+      row['C:Exterior Material'] = determineExteriorMaterial(attributes.brand, listing.title);
+      row['C:Department'] = 'Women';
+      row['C:Style'] = 'Shoulder Bag';
+    }
   }
 
   return row;
@@ -391,6 +468,7 @@ export async function exportToEBayCSV(
       'C:Exterior Material',
       'C:Department',
       'C:Style',
+      'Color',
       '*ShippingType',
       'ShippingService-1:Option',
       'ShippingService-1:Cost',
@@ -409,8 +487,8 @@ export async function exportToEBayCSV(
 
     const csv = csvLines.join('\n');
 
-    // Generate filename with timestamp
-    const timestamp = new Date().toISOString().split('T')[0];
+    // Generate filename with full timestamp
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
     const filename = `ebay-listings-${timestamp}.csv`;
 
     return {

@@ -416,9 +416,9 @@ export function ListingsTableClient({ listings }: ListingsTableClientProps) {
                   />
                 </td>
                 <td className="px-4 py-4">
-                  {listing.image_url ? (
+                  {listing.image_urls && listing.image_urls.length > 0 ? (
                     <Image
-                      src={listing.image_url}
+                      src={listing.image_urls[0]}
                       alt={listing.title}
                       width={60}
                       height={60}
