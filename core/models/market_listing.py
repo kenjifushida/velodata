@@ -192,7 +192,7 @@ class MarketListing(BaseModel):
     )
 
     # --- CLASSIFICATION ---
-    niche_type: Literal["POKEMON_CARD", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM"] = Field(
+    niche_type: Literal["POKEMON_CARD", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "VIDEOGAME"] = Field(
         ...,
         description="Product niche type (must match canonical_products niche types)"
     )
@@ -300,7 +300,7 @@ class MarketListing(BaseModel):
 
 def create_hardoff_listing(
     external_id: str,
-    niche_type: Literal["POKEMON_CARD", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM"],
+    niche_type: Literal["POKEMON_CARD", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "VIDEOGAME"],
     title: str,
     price_jpy: int,
     url: str,

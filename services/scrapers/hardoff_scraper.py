@@ -13,6 +13,7 @@ Supported Categories:
     - watches: Luxury and vintage wristwatches
     - camera_gear: Digital cameras, lenses, and photography equipment
     - luxury_items: Designer bags, wallets, and accessories (includes subcategories)
+    - videogames: Game consoles (standing, portable, hybrid)
 
 Usage:
     # Dry run (don't save to database, just print)
@@ -26,6 +27,10 @@ Usage:
     # Filter by condition ranks (only scrape items in specific conditions)
     python hardoff_scraper.py --category watches --max-pages 5 --ranks N S A
     python hardoff_scraper.py --category luxury_items --max-pages 10 --ranks N S
+
+    # Search by keyword (must specify niche type and keyword)
+    python hardoff_scraper.py --niche VIDEOGAME --keyword "ゲームボーイ" --max-pages 5
+    python hardoff_scraper.py --niche LUXURY_ITEM --keyword "LOUIS VUITTON" --max-pages 10 --ranks N S A
 
     # Available ranks: N (New), S (Nearly New), A (Excellent), B (Good),
     #                  C (Fair), D (Poor), JUNK (For parts/not working)
@@ -41,6 +46,7 @@ import argparse
 import time
 import uuid
 import re
+import urllib.parse
 from typing import List, Dict, Optional, Literal
 from datetime import datetime
 from bs4 import BeautifulSoup
@@ -88,7 +94,7 @@ class CategoryConfig(BaseModel):
         subcategories: Optional list of subcategory URLs to scrape
     """
     url: str
-    niche_type: Literal["WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "POKEMON_CARD"]
+    niche_type: Literal["WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "POKEMON_CARD", "VIDEOGAME"]
     display_name: str
     subcategories: Optional[List[str]] = None
 
@@ -112,6 +118,16 @@ CATEGORIES: Dict[str, CategoryConfig] = {
         subcategories=[
             "https://netmall.hardoff.co.jp/cate/000100130001/",  # Luxury Bags
             "https://netmall.hardoff.co.jp/cate/000100130002/",  # Luxury Wallets
+        ],
+    ),
+    "videogames": CategoryConfig(
+        url="https://netmall.hardoff.co.jp/cate/00010012/",
+        niche_type="VIDEOGAME",
+        display_name="Videogames",
+        subcategories=[
+            "https://netmall.hardoff.co.jp/cate/0001001200010001/",  # Standing Game Consoles
+            "https://netmall.hardoff.co.jp/cate/0001001200010002/",  # Portable Game Consoles
+            "https://netmall.hardoff.co.jp/cate/0001001200010003/",  # Hybrid Game Consoles
         ],
     ),
 }
@@ -140,16 +156,18 @@ def scrape_hardoff_category(
     niche_type: str,
     max_pages: int = 5,
     ranks: Optional[List[str]] = None,
+    keyword: Optional[str] = None,
     session_id: Optional[str] = None
 ) -> List[Dict]:
     """
-    Scrape Hard-Off category pages for product listings.
+    Scrape Hard-Off category pages or keyword search results for product listings.
 
     Args:
-        category_url: Hard-Off category URL
-        niche_type: Product niche type (CAMERA_GEAR, WATCH)
+        category_url: Hard-Off category URL (or search base URL for keyword searches)
+        niche_type: Product niche type (CAMERA_GEAR, WATCH, LUXURY_ITEM, VIDEOGAME)
         max_pages: Maximum number of pages to scrape
         ranks: Optional list of condition ranks to filter (e.g., ['N', 'S', 'A'])
+        keyword: Optional search keyword (e.g., "ゲームボーイ", "LOUIS VUITTON")
         session_id: Scraping session correlation ID
 
     Returns:
@@ -163,6 +181,7 @@ def scrape_hardoff_category(
             "niche_type": niche_type,
             "max_pages": max_pages,
             "ranks": ranks,
+            "keyword": keyword,
             "correlation_id": correlation_id
         }
     )
@@ -187,22 +206,43 @@ def scrape_hardoff_category(
             # Build query parameters
             params = []
 
-            # Add rank filters if specified
-            if ranks:
-                params.append("s=1")  # Enable search/filter mode
-                for rank in ranks:
-                    if rank in RANK_QUERY_MAP:
-                        params.append(f"rank={RANK_QUERY_MAP[rank]}")
+            # Keyword search mode
+            if keyword:
+                # For keyword searches, use search endpoint with 'q' parameter
+                # URL format: https://netmall.hardoff.co.jp/search/?q={keyword}&s=7
+                params.append(f"q={urllib.parse.quote(keyword)}")
+                params.append("s=7")  # Sort parameter (7 = newest)
 
-            # Add page parameter
-            if page > 1:
-                params.append(f"page={page}")
+                # Add rank filters if specified
+                if ranks:
+                    for rank in ranks:
+                        if rank in RANK_QUERY_MAP:
+                            params.append(f"rank={RANK_QUERY_MAP[rank]}")
 
-            # Construct URL with parameters
-            if params:
-                url = f"{category_url}?{'&'.join(params)}"
+                # Add page parameter
+                if page > 1:
+                    params.append(f"page={page}")
+
+                # Use search endpoint
+                url = f"{BASE_URL}/search/?{'&'.join(params)}"
             else:
-                url = category_url
+                # Category browsing mode (original logic)
+                # Add rank filters if specified
+                if ranks:
+                    params.append("s=1")  # Enable search/filter mode
+                    for rank in ranks:
+                        if rank in RANK_QUERY_MAP:
+                            params.append(f"rank={RANK_QUERY_MAP[rank]}")
+
+                # Add page parameter
+                if page > 1:
+                    params.append(f"page={page}")
+
+                # Construct URL with parameters
+                if params:
+                    url = f"{category_url}?{'&'.join(params)}"
+                else:
+                    url = category_url
 
             logger.debug(
                 f"Fetching page {page}",
@@ -691,11 +731,76 @@ class LuxuryItemExtractor(FieldExtractor):
         return attributes
 
 
+class VideogameExtractor(FieldExtractor):
+    """
+    Field extractor for Videogame products (game consoles).
+
+    Hard-Off HTML structure for videogames:
+    - .item-brand-name: Brand/Manufacturer (e.g., "Nintendo", "Sony", "Microsoft")
+    - .item-name: Console type/description (e.g., "据置型ゲーム機", "携帯型ゲーム機")
+    - .item-code: Model number (e.g., "Switch", "PlayStation 5", "Xbox Series X")
+    """
+
+    # Japanese subcategory to English mapping
+    SUBCATEGORY_MAP = {
+        # Standing/Home Consoles (据置型)
+        "据置型": "STANDING_CONSOLE",
+        "据置型ゲーム機": "STANDING_CONSOLE",
+        "据え置き型": "STANDING_CONSOLE",
+        "据え置き": "STANDING_CONSOLE",
+        "PlayStation": "STANDING_CONSOLE",
+        "Xbox": "STANDING_CONSOLE",
+        "Wii": "STANDING_CONSOLE",
+        # Portable Consoles (携帯型)
+        "携帯型": "PORTABLE_CONSOLE",
+        "携帯型ゲーム機": "PORTABLE_CONSOLE",
+        "ポータブル": "PORTABLE_CONSOLE",
+        "ゲームボーイ": "PORTABLE_CONSOLE",
+        "Game Boy": "PORTABLE_CONSOLE",
+        "PSP": "PORTABLE_CONSOLE",
+        "PS Vita": "PORTABLE_CONSOLE",
+        "3DS": "PORTABLE_CONSOLE",
+        "DS": "PORTABLE_CONSOLE",
+        # Hybrid Consoles (ハイブリッド型)
+        "ハイブリッド": "HYBRID_CONSOLE",
+        "ハイブリッド型": "HYBRID_CONSOLE",
+        "Switch": "HYBRID_CONSOLE",
+    }
+
+    def extract_attributes(
+        self,
+        brand: str | None,
+        name: str | None,
+        code: str | None
+    ) -> Dict:
+        attributes = {}
+
+        if brand:
+            attributes["brand"] = brand
+
+        if name:
+            # Try to map Japanese subcategory to English enum
+            for jp_term, eng_category in self.SUBCATEGORY_MAP.items():
+                if jp_term in name:
+                    attributes["subcategory"] = eng_category
+                    break
+
+            # Store raw subcategory name for debugging/future NLP
+            attributes["subcategory_raw"] = name
+
+        if code:
+            # Model number from .item-code
+            attributes["model_number"] = code
+
+        return attributes
+
+
 # Extractor registry - maps niche types to their extractors
 FIELD_EXTRACTORS: Dict[str, FieldExtractor] = {
     "CAMERA_GEAR": CameraGearExtractor(),
     "WATCH": WatchExtractor(),
     "LUXURY_ITEM": LuxuryItemExtractor(),
+    "VIDEOGAME": VideogameExtractor(),
 }
 
 
@@ -860,13 +965,26 @@ Examples:
 
   # Only scrape luxury items in excellent condition or better
   python hardoff_scraper.py --category luxury_items --ranks N S A --max-pages 10 --dry-run
+
+  # Search by keyword (requires --niche and --keyword)
+  python hardoff_scraper.py --niche VIDEOGAME --keyword "ゲームボーイ" --max-pages 5
+  python hardoff_scraper.py --niche LUXURY_ITEM --keyword "LOUIS VUITTON" --ranks N S A --max-pages 10 --dry-run
         """
     )
     parser.add_argument(
         "--category",
         choices=list(CATEGORIES.keys()),
-        required=True,
-        help="Product category to scrape"
+        help="Product category to scrape (mutually exclusive with --niche/--keyword)"
+    )
+    parser.add_argument(
+        "--niche",
+        choices=["WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "POKEMON_CARD", "VIDEOGAME"],
+        help="Niche type for keyword search (requires --keyword)"
+    )
+    parser.add_argument(
+        "--keyword",
+        type=str,
+        help="Search keyword in Japanese or English (requires --niche)"
     )
     parser.add_argument(
         "--max-pages",
@@ -888,8 +1006,28 @@ Examples:
 
     args = parser.parse_args()
 
-    # Get category configuration
-    category_config = CATEGORIES[args.category]
+    # Validate arguments
+    if args.keyword and not args.niche:
+        parser.error("--keyword requires --niche to be specified")
+    if args.niche and not args.keyword:
+        parser.error("--niche requires --keyword to be specified")
+    if args.category and (args.niche or args.keyword):
+        parser.error("--category cannot be used with --niche/--keyword")
+    if not args.category and not (args.niche and args.keyword):
+        parser.error("Either --category or (--niche and --keyword) must be specified")
+
+    # Determine scraping mode
+    if args.keyword:
+        # Keyword search mode
+        niche_type = args.niche
+        display_name = f"Keyword Search: {args.keyword}"
+        category_name = f"keyword:{args.keyword}"
+    else:
+        # Category browsing mode
+        category_config = CATEGORIES[args.category]
+        niche_type = category_config.niche_type
+        display_name = category_config.display_name
+        category_name = args.category
 
     # Log session start
     session_id = str(uuid.uuid4())[:8]
@@ -900,8 +1038,9 @@ Examples:
         "Starting scraper session",
         extra={
             "session_id": session_id,
-            "category": args.category,
-            "niche_type": category_config.niche_type,
+            "category": category_name,
+            "niche_type": niche_type,
+            "keyword": args.keyword,
             "max_pages": args.max_pages,
             "ranks": args.ranks,
             "dry_run": args.dry_run,
@@ -912,38 +1051,62 @@ Examples:
     total_seeded = 0
 
     try:
-        # Build list of URLs to scrape (main category + optional subcategories)
-        urls_to_scrape = [category_config.url]
-        if category_config.subcategories:
-            urls_to_scrape.extend(category_config.subcategories)
-            logger.info(
-                f"Category has {len(category_config.subcategories)} subcategories",
-                extra={
-                    "session_id": session_id,
-                    "total_urls": len(urls_to_scrape)
-                }
-            )
-
-        # Scrape each URL
         all_products = []
-        for url_index, url in enumerate(urls_to_scrape, 1):
+
+        if args.keyword:
+            # Keyword search mode - single search query
             logger.info(
-                f"Scraping URL {url_index}/{len(urls_to_scrape)}: {url}",
-                extra={"session_id": session_id}
+                f"Searching by keyword: {args.keyword}",
+                extra={"session_id": session_id, "niche_type": niche_type}
             )
 
             products_data = scrape_hardoff_category(
-                category_url=url,
-                niche_type=category_config.niche_type,
+                category_url="",  # Not used in keyword mode
+                niche_type=niche_type,
                 max_pages=args.max_pages,
                 ranks=args.ranks,
+                keyword=args.keyword,
                 session_id=session_id
             )
             all_products.extend(products_data)
             logger.info(
-                f"URL {url_index} yielded {len(products_data)} products",
-                extra={"session_id": session_id, "url": url}
+                f"Keyword search yielded {len(products_data)} products",
+                extra={"session_id": session_id, "keyword": args.keyword}
             )
+        else:
+            # Category browsing mode - scrape category URLs
+            category_config = CATEGORIES[args.category]
+            urls_to_scrape = [category_config.url]
+            if category_config.subcategories:
+                urls_to_scrape.extend(category_config.subcategories)
+                logger.info(
+                    f"Category has {len(category_config.subcategories)} subcategories",
+                    extra={
+                        "session_id": session_id,
+                        "total_urls": len(urls_to_scrape)
+                    }
+                )
+
+            # Scrape each URL
+            for url_index, url in enumerate(urls_to_scrape, 1):
+                logger.info(
+                    f"Scraping URL {url_index}/{len(urls_to_scrape)}: {url}",
+                    extra={"session_id": session_id}
+                )
+
+                products_data = scrape_hardoff_category(
+                    category_url=url,
+                    niche_type=category_config.niche_type,
+                    max_pages=args.max_pages,
+                    ranks=args.ranks,
+                    keyword=None,
+                    session_id=session_id
+                )
+                all_products.extend(products_data)
+                logger.info(
+                    f"URL {url_index} yielded {len(products_data)} products",
+                    extra={"session_id": session_id, "url": url}
+                )
 
         total_scraped = len(all_products)
 
@@ -969,7 +1132,8 @@ Examples:
         "Session completed",
         extra={
             "session_id": session_id,
-            "category": args.category,
+            "category": category_name,
+            "keyword": args.keyword,
             "dry_run": args.dry_run,
             "products_scraped": total_scraped,
             "products_inserted": total_seeded,

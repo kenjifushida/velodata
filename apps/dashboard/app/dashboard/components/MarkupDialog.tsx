@@ -78,7 +78,9 @@ export function MarkupDialog({
    *
    * Formula:
    * Net Margin = Sale Price - Cost - Shipping - eBay Fees
-   * eBay Fees = (Sale Price + Shipping) * (FVF + Payment % + Intl %) + Payment Fixed
+   * eBay Fees = Sale Price * (FVF + Payment % + Intl %) + Payment Fixed
+   *
+   * NOTE: Shipping cost ($30) is included in the item price. Buyers see "Free Shipping".
    *
    * Solving for Sale Price given desired margin:
    * Sale Price = (Cost + Shipping + Desired Margin + Payment Fixed) / (1 - Total Fee %)
@@ -91,20 +93,20 @@ export function MarkupDialog({
     const desiredProfit = avgCostUSD * (marginPercent / 100);
 
     // Calculate sale price needed to achieve desired margin
+    // Shipping cost is included in the sale price
     const salePrice =
       (avgCostUSD + SHIPPING_COST + desiredProfit + EBAY_PAYMENT_PROCESSING_FIXED) /
       (1 - totalFeePercent);
 
-    // Calculate actual fees
-    const totalSale = salePrice + SHIPPING_COST;
-    const finalValueFee = totalSale * EBAY_FINAL_VALUE_FEE;
+    // Calculate actual fees (eBay fees are calculated on sale price only, not shipping)
+    const finalValueFee = salePrice * EBAY_FINAL_VALUE_FEE;
     const paymentFee =
-      totalSale * EBAY_PAYMENT_PROCESSING_PERCENT + EBAY_PAYMENT_PROCESSING_FIXED;
-    const internationalFee = totalSale * EBAY_INTERNATIONAL_FEE;
+      salePrice * EBAY_PAYMENT_PROCESSING_PERCENT + EBAY_PAYMENT_PROCESSING_FIXED;
+    const internationalFee = salePrice * EBAY_INTERNATIONAL_FEE;
     const totalFees = finalValueFee + paymentFee + internationalFee;
 
-    // Net profit after all fees
-    const netProfit = salePrice - avgCostUSD - totalFees;
+    // Net profit after all fees (shipping cost already accounted for in sale price)
+    const netProfit = salePrice - avgCostUSD - SHIPPING_COST - totalFees;
     const actualMargin = (netProfit / avgCostUSD) * 100;
 
     return {
@@ -152,8 +154,8 @@ export function MarkupDialog({
           Configure eBay Export Pricing
         </h3>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Set your desired net profit margin after eBay fees. The system will calculate the
-          optimal sale price.
+          Set your desired net profit margin after eBay fees. The $30 shipping cost is included
+          in the item price, so buyers see free shipping.
         </p>
 
         {/* Margin Input */}
@@ -211,6 +213,22 @@ export function MarkupDialog({
               <span className="text-zinc-500 dark:text-zinc-500">
                 Gross Margin: {pricing.grossMarginPercent}%
               </span>
+            </div>
+            <div className="mt-2 flex items-center gap-1 rounded bg-blue-50 px-2 py-1 text-xs text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+              <svg
+                className="h-3.5 w-3.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+              <span>Shipping included in price • Buyers see "Free Shipping"</span>
             </div>
           </div>
 

@@ -45,6 +45,9 @@ interface EBayCSVRow {
   'C:Style'?: string;  // Required for bags (169291)
   'Color'?: string;  // Required for wallets (45258) and accessories (155183)
 
+  // Videogame console specifics (category-dependent)
+  'C:Platform'?: string;  // Required for game consoles (139971, 171831)
+
   // Shipping
   '*ShippingType': string;
   'ShippingService-1:Option': string;
@@ -66,6 +69,7 @@ const EBAY_CATEGORIES: Record<string, string> = {
   CAMERA_GEAR: '15230', // Digital Cameras
   POKEMON_CARD: '183454', // Pokemon Trading Card Game
   LUXURY_ITEM: '169291', // Women's Bags & Handbags (default)
+  VIDEOGAME: '139971', // Video Game Consoles (default)
 };
 
 /**
@@ -78,6 +82,15 @@ const LUXURY_SUBCATEGORY_CATEGORIES: Record<string, string> = {
 };
 
 /**
+ * eBay category mapping for videogame console subcategories
+ */
+const VIDEOGAME_SUBCATEGORY_CATEGORIES: Record<string, string> = {
+  STANDING_CONSOLE: '139971', // Video Game Consoles (home consoles like PlayStation, Xbox, Nintendo)
+  PORTABLE_CONSOLE: '171831', // Portable Gaming (Game Boy, PSP, Nintendo DS, PS Vita)
+  HYBRID_CONSOLE: '139971', // Video Game Consoles (Nintendo Switch - hybrid but listed as home console)
+};
+
+/**
  * Get eBay category for a luxury item based on subcategory
  */
 function getLuxuryItemCategory(subcategory?: string): string {
@@ -85,6 +98,16 @@ function getLuxuryItemCategory(subcategory?: string): string {
     return LUXURY_SUBCATEGORY_CATEGORIES[subcategory];
   }
   return EBAY_CATEGORIES.LUXURY_ITEM; // Default to bags category
+}
+
+/**
+ * Get eBay category for a videogame item based on subcategory
+ */
+function getVideogameCategory(subcategory?: string): string {
+  if (subcategory && VIDEOGAME_SUBCATEGORY_CATEGORIES[subcategory]) {
+    return VIDEOGAME_SUBCATEGORY_CATEGORIES[subcategory];
+  }
+  return EBAY_CATEGORIES.VIDEOGAME; // Default to video game consoles
 }
 
 /**
@@ -107,6 +130,21 @@ function mapToEBayCondition(rank?: string, nicheType?: string): string {
       JUNK: '3000', // Pre-owned (eBay doesn't allow "parts/not working" for luxury items)
     };
     return rank ? (luxuryConditionMap[rank] || '3000') : '3000';
+  }
+
+  // For videogames (Video Game Consoles 139971, Portable Gaming 171831), use restricted condition IDs
+  // eBay videogame categories only accept: 1000, 1500, 3000, 7000
+  if (nicheType === 'VIDEOGAME') {
+    const videogameConditionMap: Record<string, string> = {
+      N: '1000', // New
+      S: '1500', // New other (see details)
+      A: '3000', // Used
+      B: '3000', // Used (4000 not allowed, map to 3000)
+      C: '3000', // Used (5000 not allowed, map to 3000)
+      D: '3000', // Used (6000 not allowed, map to 3000)
+      JUNK: '7000', // For parts or not working
+    };
+    return rank ? (videogameConditionMap[rank] || '3000') : '3000';
   }
 
   // For other categories, use standard condition IDs
@@ -132,6 +170,7 @@ function generateEBayDescription(listing: MarketListing): string {
     CAMERA_GEAR: 'Professional Camera Equipment',
     POKEMON_CARD: 'Authentic Pokemon Trading Card',
     LUXURY_ITEM: 'Authentic Designer Luxury Item',
+    VIDEOGAME: 'Authentic Game Console from Japan',
   };
 
   const title = nicheDescriptions[listing.niche_type] || 'Authentic Pre-Owned Item';
@@ -323,10 +362,15 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
   // Calculate sale price with desired net margin
   const priceUSD = calculateSalePriceWithMargin(costUSD, netMarginPercent).toFixed(2);
 
-  // Determine eBay category (use subcategory for luxury items)
-  const ebayCategory = listing.niche_type === 'LUXURY_ITEM'
-    ? getLuxuryItemCategory(attributes.subcategory)
-    : (EBAY_CATEGORIES[listing.niche_type] || '15230');
+  // Determine eBay category (use subcategory for luxury items and videogames)
+  let ebayCategory: string;
+  if (listing.niche_type === 'LUXURY_ITEM') {
+    ebayCategory = getLuxuryItemCategory(attributes.subcategory);
+  } else if (listing.niche_type === 'VIDEOGAME') {
+    ebayCategory = getVideogameCategory(attributes.subcategory);
+  } else {
+    ebayCategory = EBAY_CATEGORIES[listing.niche_type] || '15230';
+  }
 
   const row: EBayCSVRow = {
     // Required fields
@@ -356,7 +400,7 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
     // Shipping
     '*ShippingType': 'Flat',
     'ShippingService-1:Option': 'ShippingMethodStandard',
-    'ShippingService-1:Cost': '30.00', // International shipping from Japan (FedEx)
+    'ShippingService-1:Cost': '0.00', // Free shipping (cost included in item price)
     'DispatchTimeMax': '7', // 7 business days to ship
 
     // Returns
@@ -366,7 +410,7 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
     'ShippingCostPaidByOption': 'Buyer',
   };
 
-  // Add luxury item specifics based on subcategory
+  // Add niche-specific item specifics
   if (listing.niche_type === 'LUXURY_ITEM') {
     const subcategory = attributes.subcategory;
 
@@ -388,6 +432,47 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
       row['C:Department'] = 'Women';
       row['C:Style'] = 'Shoulder Bag';
     }
+  } else if (listing.niche_type === 'VIDEOGAME') {
+    // Videogame consoles - Categories 139971 (Video Game Consoles) and 171831 (Portable Gaming)
+    // Both categories use C:Platform as a required field
+    // Common platforms: Nintendo Game Boy, Nintendo Switch, Sony PlayStation, etc.
+    const brand = attributes.brand || '';
+    const modelNumber = attributes.model_number || '';
+
+    // Determine platform from brand and model
+    let platform = 'See description';
+    if (brand.toLowerCase().includes('nintendo')) {
+      if (modelNumber.toLowerCase().includes('switch')) {
+        platform = 'Nintendo Switch';
+      } else if (modelNumber.toLowerCase().includes('game boy') || modelNumber.toLowerCase().includes('ゲームボーイ')) {
+        platform = 'Nintendo Game Boy';
+      } else if (modelNumber.toLowerCase().includes('3ds')) {
+        platform = 'Nintendo 3DS';
+      } else if (modelNumber.toLowerCase().includes('ds')) {
+        platform = 'Nintendo DS';
+      } else if (modelNumber.toLowerCase().includes('wii')) {
+        platform = 'Nintendo Wii';
+      } else {
+        platform = 'Nintendo';
+      }
+    } else if (brand.toLowerCase().includes('sony')) {
+      if (modelNumber.toLowerCase().includes('playstation') || modelNumber.toLowerCase().includes('ps')) {
+        platform = 'Sony PlayStation';
+      } else if (modelNumber.toLowerCase().includes('psp')) {
+        platform = 'Sony PSP';
+      } else if (modelNumber.toLowerCase().includes('vita')) {
+        platform = 'Sony PlayStation Vita';
+      } else {
+        platform = 'Sony PlayStation';
+      }
+    } else if (brand.toLowerCase().includes('microsoft')) {
+      platform = 'Microsoft Xbox';
+    } else if (brand.toLowerCase().includes('sega')) {
+      platform = 'Sega';
+    }
+
+    row['C:Platform'] = platform;
+    row['C:Type'] = 'Console';
   }
 
   return row;
@@ -469,6 +554,7 @@ export async function exportToEBayCSV(
       'C:Department',
       'C:Style',
       'Color',
+      'C:Platform',
       '*ShippingType',
       'ShippingService-1:Option',
       'ShippingService-1:Cost',
