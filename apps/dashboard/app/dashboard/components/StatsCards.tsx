@@ -4,6 +4,8 @@
  * Displays dashboard statistics in card format.
  */
 
+import { NICHE_DISPLAY_NAMES } from '@/lib/constants';
+
 interface StatsCardsProps {
   stats: {
     totalListings: number;
@@ -14,11 +16,6 @@ interface StatsCardsProps {
 }
 
 export function StatsCards({ stats }: StatsCardsProps) {
-  const nicheNames: Record<string, string> = {
-    POKEMON_CARD: 'Pokemon Cards',
-    WATCH: 'Watches',
-    CAMERA_GEAR: 'Camera Gear',
-  };
 
   return (
     <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
@@ -118,7 +115,7 @@ export function StatsCards({ stats }: StatsCardsProps) {
           {stats.nicheBreakdown.map((niche) => (
             <div key={niche._id} className="flex justify-between text-sm">
               <span className="text-zinc-700 dark:text-zinc-300">
-                {nicheNames[niche._id] || niche._id}
+                {NICHE_DISPLAY_NAMES[niche._id as keyof typeof NICHE_DISPLAY_NAMES] || niche._id}
               </span>
               <span className="font-semibold text-zinc-900 dark:text-zinc-50">
                 {niche.count.toLocaleString()}

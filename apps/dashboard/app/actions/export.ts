@@ -48,6 +48,29 @@ interface EBayCSVRow {
   // Videogame console specifics (category-dependent)
   'C:Platform'?: string;  // Required for game consoles (139971, 171831)
 
+  // Watch specifics (category-dependent)
+  'C:Band Material'?: string;  // For watches (31387)
+  'C:Case Material'?: string;  // For watches (31387)
+  'C:Movement'?: string;  // For watches (31387)
+  'C:Dial Color'?: string;  // For watches (31387)
+
+  // Camera specifics (category-dependent)
+  'C:Series'?: string;  // For cameras (15230)
+  'C:Megapixels'?: string;  // For digital cameras (15230)
+  'C:Optical Zoom'?: string;  // For cameras (15230)
+
+  // Pokemon Card specifics (category-dependent)
+  'C:Card Name'?: string;  // For Pokemon cards (183454)
+  'C:Card Number'?: string;  // For Pokemon cards (183454)
+  'C:Set'?: string;  // For Pokemon cards (183454)
+  'C:Rarity'?: string;  // For Pokemon cards (183454)
+  'C:Language'?: string;  // For Pokemon cards (183454)
+
+  // Stationary specifics (category-dependent)
+  'C:Ink Color'?: string;  // For pens (61778-61782)
+  'C:Point Size'?: string;  // For pens (61778-61782)
+  'C:Features'?: string;  // For stationary (61778-61782)
+
   // Shipping
   '*ShippingType': string;
   'ShippingService-1:Option': string;
@@ -70,6 +93,7 @@ const EBAY_CATEGORIES: Record<string, string> = {
   POKEMON_CARD: '183454', // Pokemon Trading Card Game
   LUXURY_ITEM: '169291', // Women's Bags & Handbags (default)
   VIDEOGAME: '139971', // Video Game Consoles (default)
+  STATIONARY: '61778', // Fountain Pens (default - leaf category)
 };
 
 /**
@@ -91,6 +115,22 @@ const VIDEOGAME_SUBCATEGORY_CATEGORIES: Record<string, string> = {
 };
 
 /**
+ * eBay category mapping for stationary subcategories
+ * NOTE: These are LEAF categories (most specific). Category 159912 is too broad and will be rejected.
+ */
+const STATIONARY_SUBCATEGORY_CATEGORIES: Record<string, string> = {
+  FOUNTAIN_PEN: '61778', // Collectibles > Pens & Writing Instruments > Pens > Fountain Pens
+  BALLPOINT_PEN: '61782', // Collectibles > Pens & Writing Instruments > Pens > Ballpoint Pens
+  MECHANICAL_PENCIL: '61780', // Collectibles > Pens & Writing Instruments > Pens > Mechanical Pencils
+  PEN: '61778', // Default to Fountain Pens for generic pens
+  WRITING_UTENSIL: '61778', // Default to Fountain Pens for generic writing utensils
+  PENCIL: '61779', // Collectibles > Pens & Writing Instruments > Pens > Pencils
+  MARKER: '61781', // Collectibles > Pens & Writing Instruments > Pens > Markers
+  INK: '49004', // Collectibles > Pens & Writing Instruments > Ink
+  NOTEBOOK: '159903', // Office Products > Paper, Notebooks & Pads
+};
+
+/**
  * Get eBay category for a luxury item based on subcategory
  */
 function getLuxuryItemCategory(subcategory?: string): string {
@@ -108,6 +148,16 @@ function getVideogameCategory(subcategory?: string): string {
     return VIDEOGAME_SUBCATEGORY_CATEGORIES[subcategory];
   }
   return EBAY_CATEGORIES.VIDEOGAME; // Default to video game consoles
+}
+
+/**
+ * Get eBay category for a stationary item based on subcategory
+ */
+function getStationaryCategory(subcategory?: string): string {
+  if (subcategory && STATIONARY_SUBCATEGORY_CATEGORIES[subcategory]) {
+    return STATIONARY_SUBCATEGORY_CATEGORIES[subcategory];
+  }
+  return EBAY_CATEGORIES.STATIONARY; // Default to pens & writing instruments
 }
 
 /**
@@ -147,6 +197,21 @@ function mapToEBayCondition(rank?: string, nicheType?: string): string {
     return rank ? (videogameConditionMap[rank] || '3000') : '3000';
   }
 
+  // For stationary (Collectible Pens 61778-61782), use restricted condition IDs
+  // eBay collectible pen categories only accept: 1000, 1500, 3000, 7000
+  if (nicheType === 'STATIONARY') {
+    const stationaryConditionMap: Record<string, string> = {
+      N: '1000', // New
+      S: '1500', // New other (see details)
+      A: '3000', // Used
+      B: '3000', // Used (4000 not allowed, map to 3000)
+      C: '3000', // Used (5000 not allowed, map to 3000)
+      D: '3000', // Used (6000 not allowed, map to 3000)
+      JUNK: '7000', // For parts or not working
+    };
+    return rank ? (stationaryConditionMap[rank] || '3000') : '3000';
+  }
+
   // For other categories, use standard condition IDs
   const conditionMap: Record<string, string> = {
     N: '1000', // New
@@ -171,6 +236,7 @@ function generateEBayDescription(listing: MarketListing): string {
     POKEMON_CARD: 'Authentic Pokemon Trading Card',
     LUXURY_ITEM: 'Authentic Designer Luxury Item',
     VIDEOGAME: 'Authentic Game Console from Japan',
+    STATIONARY: 'Authentic Writing Instrument from Japan',
   };
 
   const title = nicheDescriptions[listing.niche_type] || 'Authentic Pre-Owned Item';
@@ -362,12 +428,14 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
   // Calculate sale price with desired net margin
   const priceUSD = calculateSalePriceWithMargin(costUSD, netMarginPercent).toFixed(2);
 
-  // Determine eBay category (use subcategory for luxury items and videogames)
+  // Determine eBay category (use subcategory for luxury items, videogames, and stationary)
   let ebayCategory: string;
   if (listing.niche_type === 'LUXURY_ITEM') {
     ebayCategory = getLuxuryItemCategory(attributes.subcategory);
   } else if (listing.niche_type === 'VIDEOGAME') {
     ebayCategory = getVideogameCategory(attributes.subcategory);
+  } else if (listing.niche_type === 'STATIONARY') {
+    ebayCategory = getStationaryCategory(attributes.subcategory);
   } else {
     ebayCategory = EBAY_CATEGORIES[listing.niche_type] || '15230';
   }
@@ -473,6 +541,41 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
 
     row['C:Platform'] = platform;
     row['C:Type'] = 'Console';
+  } else if (listing.niche_type === 'WATCH') {
+    // Watches - Category 31387 (Wristwatches)
+    // Common item specifics: Band Material, Case Material, Movement, Dial Color
+    row['C:Band Material'] = 'Stainless Steel'; // Default, could be extracted from title
+    row['C:Case Material'] = 'Stainless Steel';
+    row['C:Movement'] = 'Automatic'; // Default for luxury watches
+    row['C:Dial Color'] = determineColor(attributes.brand, listing.title);
+  } else if (listing.niche_type === 'CAMERA_GEAR') {
+    // Camera Gear - Category 15230 (Digital Cameras)
+    // Item specifics: Series, Megapixels, Optical Zoom
+    const brand = attributes.brand || '';
+    const modelNumber = attributes.model_number || '';
+
+    row['C:Series'] = modelNumber.split(' ')[0] || 'See description'; // e.g., "EOS" from "EOS R5"
+    row['C:Megapixels'] = 'See description'; // Would need to parse from title/specs
+    row['C:Optical Zoom'] = 'See description';
+  } else if (listing.niche_type === 'POKEMON_CARD') {
+    // Pokemon Cards - Category 183454 (Pokemon Trading Card Game)
+    // Item specifics: Card Name, Card Number, Set, Rarity, Language
+    row['C:Card Name'] = listing.title.substring(0, 50);
+    row['C:Card Number'] = attributes.card_number || 'See description';
+    row['C:Set'] = attributes.set_code || attributes.set || 'See description';
+    row['C:Rarity'] = attributes.rarity || 'See description';
+    row['C:Language'] = 'Japanese'; // Default for Japanese marketplace
+  } else if (listing.niche_type === 'STATIONARY') {
+    // Stationary - Category 159912 (Pens & Writing Instruments)
+    // Item specifics: Ink Color, Point Size, Features
+    const modelNumber = attributes.model_number || '';
+    const subcategory = attributes.subcategory || '';
+
+    if (subcategory === 'FOUNTAIN_PEN' || subcategory === 'BALLPOINT_PEN' || subcategory === 'PEN') {
+      row['C:Ink Color'] = 'Black'; // Default
+      row['C:Point Size'] = 'Medium';
+      row['C:Features'] = subcategory === 'FOUNTAIN_PEN' ? 'Refillable' : 'See description';
+    }
   }
 
   return row;
@@ -532,6 +635,7 @@ export async function exportToEBayCSV(
     const csvRows = listings.map((listing) => listingToEBayRow(listing, netMarginPercent));
 
     // Define CSV headers (eBay File Exchange format)
+    // Includes all possible fields for all niches - eBay ignores unused fields
     const headers = [
       '*Action(SiteID=US|Country=US|Currency=USD|Version=1193)',
       '*Category',
@@ -549,12 +653,34 @@ export async function exportToEBayCSV(
       'ConditionID',
       'C:Model',
       'C:Type',
+      // Luxury item fields
       'C:Exterior Color',
       'C:Exterior Material',
       'C:Department',
       'C:Style',
       'Color',
+      // Videogame console fields
       'C:Platform',
+      // Watch fields
+      'C:Band Material',
+      'C:Case Material',
+      'C:Movement',
+      'C:Dial Color',
+      // Camera gear fields
+      'C:Series',
+      'C:Megapixels',
+      'C:Optical Zoom',
+      // Pokemon card fields
+      'C:Card Name',
+      'C:Card Number',
+      'C:Set',
+      'C:Rarity',
+      'C:Language',
+      // Stationary fields
+      'C:Ink Color',
+      'C:Point Size',
+      'C:Features',
+      // Shipping and returns
       '*ShippingType',
       'ShippingService-1:Option',
       'ShippingService-1:Cost',

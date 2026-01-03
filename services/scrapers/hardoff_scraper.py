@@ -14,6 +14,7 @@ Supported Categories:
     - camera_gear: Digital cameras, lenses, and photography equipment
     - luxury_items: Designer bags, wallets, and accessories (includes subcategories)
     - videogames: Game consoles (standing, portable, hybrid)
+    - stationary: Writing utensils, fountain pens, and office supplies (includes subcategories)
 
 Usage:
     # Dry run (don't save to database, just print)
@@ -23,14 +24,18 @@ Usage:
     python hardoff_scraper.py --category watches --max-pages 5
     python hardoff_scraper.py --category camera_gear --max-pages 10
     python hardoff_scraper.py --category luxury_items --max-pages 5
+    python hardoff_scraper.py --category stationary --max-pages 5
 
     # Filter by condition ranks (only scrape items in specific conditions)
     python hardoff_scraper.py --category watches --max-pages 5 --ranks N S A
     python hardoff_scraper.py --category luxury_items --max-pages 10 --ranks N S
 
     # Search by keyword (must specify niche type and keyword)
+    # Keyword search automatically filters by category to only show results from that niche
     python hardoff_scraper.py --niche VIDEOGAME --keyword "ゲームボーイ" --max-pages 5
     python hardoff_scraper.py --niche LUXURY_ITEM --keyword "LOUIS VUITTON" --max-pages 10 --ranks N S A
+    python hardoff_scraper.py --niche STATIONARY --keyword "万年筆" --max-pages 5
+    python hardoff_scraper.py --niche STATIONARY --keyword "Montblanc" --max-pages 3
 
     # Available ranks: N (New), S (Nearly New), A (Excellent), B (Good),
     #                  C (Fair), D (Poor), JUNK (For parts/not working)
@@ -94,7 +99,7 @@ class CategoryConfig(BaseModel):
         subcategories: Optional list of subcategory URLs to scrape
     """
     url: str
-    niche_type: Literal["WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "POKEMON_CARD", "VIDEOGAME"]
+    niche_type: Literal["WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "POKEMON_CARD", "VIDEOGAME", "STATIONARY"]
     display_name: str
     subcategories: Optional[List[str]] = None
 
@@ -130,6 +135,26 @@ CATEGORIES: Dict[str, CategoryConfig] = {
             "https://netmall.hardoff.co.jp/cate/0001001200010003/",  # Hybrid Game Consoles
         ],
     ),
+    "stationary": CategoryConfig(
+        url="https://netmall.hardoff.co.jp/cate/000100070008/",
+        niche_type="STATIONARY",
+        display_name="Stationary",
+        subcategories=[
+            "https://netmall.hardoff.co.jp/cate/0001000700080001/",  # Writing Utensils
+            "https://netmall.hardoff.co.jp/cate/00010007000800010001/",  # Fountain Pens
+        ],
+    ),
+}
+
+# Niche type to category ID mapping for keyword searches
+# Maps niche types to Hard-Off category IDs to filter search results
+NICHE_CATEGORY_IDS: Dict[str, str] = {
+    "WATCH": "000100040001",
+    "CAMERA_GEAR": "00010003",
+    "LUXURY_ITEM": "00010013",
+    "POKEMON_CARD": "00010002",  # Trading Cards category
+    "VIDEOGAME": "00010012",
+    "STATIONARY": "000100070008",
 }
 
 # Rank filter mapping (Hard-Off query parameters)
@@ -163,15 +188,21 @@ def scrape_hardoff_category(
     Scrape Hard-Off category pages or keyword search results for product listings.
 
     Args:
-        category_url: Hard-Off category URL (or search base URL for keyword searches)
-        niche_type: Product niche type (CAMERA_GEAR, WATCH, LUXURY_ITEM, VIDEOGAME)
+        category_url: Hard-Off category URL (not used for keyword searches)
+        niche_type: Product niche type (CAMERA_GEAR, WATCH, LUXURY_ITEM, VIDEOGAME, STATIONARY)
         max_pages: Maximum number of pages to scrape
         ranks: Optional list of condition ranks to filter (e.g., ['N', 'S', 'A'])
-        keyword: Optional search keyword (e.g., "ゲームボーイ", "LOUIS VUITTON")
+        keyword: Optional search keyword (e.g., "ゲームボーイ", "LOUIS VUITTON", "Montblanc")
+                 When provided, search is automatically filtered by niche category
         session_id: Scraping session correlation ID
 
     Returns:
         List of scraped product dictionaries
+
+    Note:
+        Keyword searches use Hard-Off's search API with category filtering to ensure
+        results only come from the specified niche type. This prevents irrelevant
+        results from other categories.
     """
     correlation_id = session_id or str(uuid.uuid4())[:8]
     logger.info(
@@ -208,9 +239,19 @@ def scrape_hardoff_category(
 
             # Keyword search mode
             if keyword:
-                # For keyword searches, use search endpoint with 'q' parameter
-                # URL format: https://netmall.hardoff.co.jp/search/?q={keyword}&s=7
+                # For keyword searches, use search endpoint with 'q' parameter and category filter
+                # URL format: https://netmall.hardoff.co.jp/search/?q={keyword}&cate={category_id}&s=7
                 params.append(f"q={urllib.parse.quote(keyword)}")
+
+                # Add category filter to restrict search to specific niche
+                if niche_type in NICHE_CATEGORY_IDS:
+                    category_id = NICHE_CATEGORY_IDS[niche_type]
+                    params.append(f"cate={category_id}")
+                    logger.debug(
+                        f"Filtering keyword search by category",
+                        extra={"niche_type": niche_type, "category_id": category_id}
+                    )
+
                 params.append("s=7")  # Sort parameter (7 = newest)
 
                 # Add rank filters if specified
@@ -795,12 +836,81 @@ class VideogameExtractor(FieldExtractor):
         return attributes
 
 
+class StationaryExtractor(FieldExtractor):
+    """
+    Field extractor for Stationary products (writing utensils, fountain pens, office supplies).
+
+    Hard-Off HTML structure for stationary:
+    - .item-brand-name: Brand/Manufacturer (e.g., "Montblanc", "Parker", "Pilot", "Sailor")
+    - .item-name: Product type/description (e.g., "万年筆", "ボールペン", "シャープペンシル")
+    - .item-code: Model number (e.g., "Meisterstück 149", "Sonnet", "Custom 74")
+    """
+
+    # Japanese subcategory to English mapping
+    SUBCATEGORY_MAP = {
+        # Writing Utensils
+        "筆記用具": "WRITING_UTENSIL",
+        "筆記具": "WRITING_UTENSIL",
+        # Fountain Pens
+        "万年筆": "FOUNTAIN_PEN",
+        "万年": "FOUNTAIN_PEN",
+        "ファウンテンペン": "FOUNTAIN_PEN",
+        # Ballpoint Pens
+        "ボールペン": "BALLPOINT_PEN",
+        "ボール": "BALLPOINT_PEN",
+        # Mechanical Pencils
+        "シャープペンシル": "MECHANICAL_PENCIL",
+        "シャーペン": "MECHANICAL_PENCIL",
+        # Pens (general)
+        "ペン": "PEN",
+        # Pencils
+        "鉛筆": "PENCIL",
+        # Markers
+        "マーカー": "MARKER",
+        "蛍光ペン": "MARKER",
+        # Ink
+        "インク": "INK",
+        "インクボトル": "INK",
+        # Notebooks
+        "ノート": "NOTEBOOK",
+        "手帳": "NOTEBOOK",
+    }
+
+    def extract_attributes(
+        self,
+        brand: str | None,
+        name: str | None,
+        code: str | None
+    ) -> Dict:
+        attributes = {}
+
+        if brand:
+            attributes["brand"] = brand
+
+        if name:
+            # Try to map Japanese subcategory to English enum
+            for jp_term, eng_category in self.SUBCATEGORY_MAP.items():
+                if jp_term in name:
+                    attributes["subcategory"] = eng_category
+                    break
+
+            # Store raw subcategory name for debugging/future NLP
+            attributes["subcategory_raw"] = name
+
+        if code:
+            # Model number from .item-code
+            attributes["model_number"] = code
+
+        return attributes
+
+
 # Extractor registry - maps niche types to their extractors
 FIELD_EXTRACTORS: Dict[str, FieldExtractor] = {
     "CAMERA_GEAR": CameraGearExtractor(),
     "WATCH": WatchExtractor(),
     "LUXURY_ITEM": LuxuryItemExtractor(),
     "VIDEOGAME": VideogameExtractor(),
+    "STATIONARY": StationaryExtractor(),
 }
 
 
@@ -978,7 +1088,7 @@ Examples:
     )
     parser.add_argument(
         "--niche",
-        choices=["WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "POKEMON_CARD", "VIDEOGAME"],
+        choices=["WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "POKEMON_CARD", "VIDEOGAME", "STATIONARY"],
         help="Niche type for keyword search (requires --keyword)"
     )
     parser.add_argument(

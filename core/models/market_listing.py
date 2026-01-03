@@ -192,7 +192,7 @@ class MarketListing(BaseModel):
     )
 
     # --- CLASSIFICATION ---
-    niche_type: Literal["POKEMON_CARD", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "VIDEOGAME"] = Field(
+    niche_type: Literal["POKEMON_CARD", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "VIDEOGAME", "STATIONARY"] = Field(
         ...,
         description="Product niche type (must match canonical_products niche types)"
     )

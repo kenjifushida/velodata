@@ -13,6 +13,7 @@ import { exportToEBayCSV } from '@/app/actions/export';
 import { deleteMarketListings } from '@/app/actions/delete-listings';
 import { ConfirmDialog } from './ConfirmDialog';
 import { MarkupDialog } from './MarkupDialog';
+import { NICHE_DISPLAY_NAMES, CONDITION_COLORS } from '@/lib/constants';
 
 interface ListingsTableClientProps {
   listings: MarketListing[];
@@ -27,23 +28,6 @@ export function ListingsTableClient({ listings }: ListingsTableClientProps) {
   const [showMarkupDialog, setShowMarkupDialog] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-
-  const nicheNames: Record<string, string> = {
-    POKEMON_CARD: 'Pokemon Cards',
-    WATCH: 'Watches',
-    CAMERA_GEAR: 'Camera Gear',
-    LUXURY_ITEM: 'Luxury Items',
-  };
-
-  const conditionColors: Record<string, string> = {
-    N: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400',
-    S: 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400',
-    A: 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400',
-    B: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400',
-    C: 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400',
-    D: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400',
-    JUNK: 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-400',
-  };
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
@@ -456,7 +440,7 @@ export function ListingsTableClient({ listings }: ListingsTableClientProps) {
                 </td>
                 <td className="px-4 py-4">
                   <span className="text-sm text-zinc-700 dark:text-zinc-300">
-                    {nicheNames[listing.niche_type] || listing.niche_type}
+                    {NICHE_DISPLAY_NAMES[listing.niche_type] || listing.niche_type}
                   </span>
                 </td>
                 <td className="px-4 py-4">
@@ -473,7 +457,7 @@ export function ListingsTableClient({ listings }: ListingsTableClientProps) {
                   {listing.attributes.condition_rank && (
                     <span
                       className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                        conditionColors[listing.attributes.condition_rank] ||
+                        CONDITION_COLORS[listing.attributes.condition_rank] ||
                         'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-400'
                       }`}
                     >

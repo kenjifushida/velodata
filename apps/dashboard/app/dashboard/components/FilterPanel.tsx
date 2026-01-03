@@ -9,6 +9,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { getFilterOptions } from '@/app/actions/market-listings';
 import type { NicheType, SourceId } from '@/lib/models/market-listing';
+import { NICHE_DISPLAY_NAMES, SOURCE_DISPLAY_NAMES } from '@/lib/constants';
 
 export function FilterPanel() {
   const router = useRouter();
@@ -59,17 +60,6 @@ export function FilterPanel() {
     router.push('/dashboard');
   };
 
-  const nicheNames: Record<string, string> = {
-    POKEMON_CARD: 'Pokemon Cards',
-    WATCH: 'Watches',
-    CAMERA_GEAR: 'Camera Gear',
-  };
-
-  const sourceNames: Record<string, string> = {
-    HARDOFF: 'Hard-Off',
-    MERCARI_JP: 'Mercari Japan',
-    YAHOO_AUCTIONS_JP: 'Yahoo! Auctions',
-  };
 
   return (
     <div className="space-y-4">
@@ -110,7 +100,7 @@ export function FilterPanel() {
             <option value="">All Niches</option>
             {filterOptions.nicheTypes.map((type) => (
               <option key={type} value={type}>
-                {nicheNames[type] || type}
+                {NICHE_DISPLAY_NAMES[type] || type}
               </option>
             ))}
           </select>
@@ -133,7 +123,7 @@ export function FilterPanel() {
             <option value="">All Sources</option>
             {filterOptions.sources.map((source) => (
               <option key={source} value={source}>
-                {sourceNames[source] || source}
+                {SOURCE_DISPLAY_NAMES[source] || source}
               </option>
             ))}
           </select>
