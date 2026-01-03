@@ -187,12 +187,37 @@ Add,61778,Montblanc Meisterstück 149,245.67,1,FixedPrice,GTC,"Tokyo, Japan",...
 
 ---
 
+### 7. COLLECTION_FIGURES (Category: 261068)
+
+**eBay Category:**
+- [261068 - Action Figure Anime & Manga Action Figures](https://www.ebay.com/b/Action-Figure-Anime-Manga-Action-Figures/261068/bn_1923958)
+
+| Field | Required | Default Value | Description |
+|-------|----------|---------------|-------------|
+| `C:Character` | Recommended | From attributes | Character name |
+| `C:Character Family` | Recommended | `Anime` or `See description` | Character series/family |
+| `C:Scale` | Recommended | Based on subcategory | Figure scale (e.g., "1:8", "Non-Scale") |
+| `C:Material` | Recommended | `PVC` | Figure material |
+
+**Scale Mapping by Subcategory:**
+- SCALE_FIGURE → `1:8` (common scale)
+- NENDOROID → `Non-Scale`
+- FIGMA → `Non-Scale`
+- Other → `See description`
+
+**Example CSV Row:**
+```csv
+Add,261068,Nendoroid Hatsune Miku,85.50,1,FixedPrice,GTC,"Tokyo, Japan",...,Good Smile Company,...,Hatsune Miku,Anime,Non-Scale,PVC,...
+```
+
+---
+
 ## eBay Condition IDs
 
 Different niche categories accept different condition IDs:
 
 ### Standard Condition IDs
-Used by: WATCH, CAMERA_GEAR, POKEMON_CARD
+Used by: WATCH, CAMERA_GEAR, POKEMON_CARD, COLLECTION_FIGURES
 
 | Japanese Rank | Condition | eBay ID | Description |
 |---------------|-----------|---------|-------------|

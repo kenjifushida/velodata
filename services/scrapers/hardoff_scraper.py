@@ -15,6 +15,7 @@ Supported Categories:
     - luxury_items: Designer bags, wallets, and accessories (includes subcategories)
     - videogames: Game consoles (standing, portable, hybrid)
     - stationary: Writing utensils, fountain pens, and office supplies (includes subcategories)
+    - collection_figures: Anime figures, collectible figurines, and model kits
 
 Usage:
     # Dry run (don't save to database, just print)
@@ -99,7 +100,7 @@ class CategoryConfig(BaseModel):
         subcategories: Optional list of subcategory URLs to scrape
     """
     url: str
-    niche_type: Literal["WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "POKEMON_CARD", "VIDEOGAME", "STATIONARY"]
+    niche_type: Literal["WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "POKEMON_CARD", "VIDEOGAME", "STATIONARY", "COLLECTION_FIGURES"]
     display_name: str
     subcategories: Optional[List[str]] = None
 
@@ -144,6 +145,11 @@ CATEGORIES: Dict[str, CategoryConfig] = {
             "https://netmall.hardoff.co.jp/cate/00010007000800010001/",  # Fountain Pens
         ],
     ),
+    "collection_figures": CategoryConfig(
+        url="https://netmall.hardoff.co.jp/cate/000100090006/",
+        niche_type="COLLECTION_FIGURES",
+        display_name="Collection Figures",
+    ),
 }
 
 # Niche type to category ID mapping for keyword searches
@@ -155,6 +161,7 @@ NICHE_CATEGORY_IDS: Dict[str, str] = {
     "POKEMON_CARD": "00010002",  # Trading Cards category
     "VIDEOGAME": "00010012",
     "STATIONARY": "000100070008",
+    "COLLECTION_FIGURES": "000100090006",
 }
 
 # Rank filter mapping (Hard-Off query parameters)
@@ -904,6 +911,69 @@ class StationaryExtractor(FieldExtractor):
         return attributes
 
 
+class CollectionFiguresExtractor(FieldExtractor):
+    """
+    Field extractor for Collection Figures products (anime figures, collectible figurines).
+
+    Hard-Off HTML structure for collection figures:
+    - .item-brand-name: Brand/Manufacturer (e.g., "BANDAI", "Good Smile Company", "Kotobukiya")
+    - .item-name: Product type/description (e.g., "フィギュア", "ねんどろいど", "figma")
+    - .item-code: Model/character name (e.g., "初音ミク", "ガンダム", character names)
+    """
+
+    # Japanese subcategory to English mapping
+    SUBCATEGORY_MAP = {
+        # General Figures
+        "フィギュア": "FIGURE",
+        "フィギア": "FIGURE",
+        # Nendoroid (Good Smile Company)
+        "ねんどろいど": "NENDOROID",
+        "Nendoroid": "NENDOROID",
+        # Figma (Good Smile Company)
+        "figma": "FIGMA",
+        # Scale Figures
+        "スケールフィギュア": "SCALE_FIGURE",
+        # Prize Figures
+        "プライズ": "PRIZE_FIGURE",
+        "一番くじ": "PRIZE_FIGURE",
+        # Action Figures
+        "アクションフィギュア": "ACTION_FIGURE",
+        # Dolls
+        "ドール": "DOLL",
+        "人形": "DOLL",
+        # Model Kits
+        "プラモデル": "MODEL_KIT",
+        "ガンプラ": "GUNPLA",  # Gundam plastic model
+    }
+
+    def extract_attributes(
+        self,
+        brand: str | None,
+        name: str | None,
+        code: str | None
+    ) -> Dict:
+        attributes = {}
+
+        if brand:
+            attributes["brand"] = brand
+
+        if name:
+            # Try to map Japanese subcategory to English enum
+            for jp_term, eng_category in self.SUBCATEGORY_MAP.items():
+                if jp_term in name:
+                    attributes["subcategory"] = eng_category
+                    break
+
+            # Store raw subcategory name for debugging/future NLP
+            attributes["subcategory_raw"] = name
+
+        if code:
+            # Character/model name from .item-code
+            attributes["character_name"] = code
+
+        return attributes
+
+
 # Extractor registry - maps niche types to their extractors
 FIELD_EXTRACTORS: Dict[str, FieldExtractor] = {
     "CAMERA_GEAR": CameraGearExtractor(),
@@ -911,6 +981,7 @@ FIELD_EXTRACTORS: Dict[str, FieldExtractor] = {
     "LUXURY_ITEM": LuxuryItemExtractor(),
     "VIDEOGAME": VideogameExtractor(),
     "STATIONARY": StationaryExtractor(),
+    "COLLECTION_FIGURES": CollectionFiguresExtractor(),
 }
 
 
@@ -1088,7 +1159,7 @@ Examples:
     )
     parser.add_argument(
         "--niche",
-        choices=["WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "POKEMON_CARD", "VIDEOGAME", "STATIONARY"],
+        choices=["WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "POKEMON_CARD", "VIDEOGAME", "STATIONARY", "COLLECTION_FIGURES"],
         help="Niche type for keyword search (requires --keyword)"
     )
     parser.add_argument(

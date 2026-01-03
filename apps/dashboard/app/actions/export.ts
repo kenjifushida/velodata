@@ -71,6 +71,12 @@ interface EBayCSVRow {
   'C:Point Size'?: string;  // For pens (61778-61782)
   'C:Features'?: string;  // For stationary (61778-61782)
 
+  // Collection Figures specifics (category-dependent)
+  'C:Character'?: string;  // For action figures (261068)
+  'C:Character Family'?: string;  // For action figures (261068)
+  'C:Scale'?: string;  // For action figures (261068)
+  'C:Material'?: string;  // For action figures (261068)
+
   // Shipping
   '*ShippingType': string;
   'ShippingService-1:Option': string;
@@ -94,6 +100,7 @@ const EBAY_CATEGORIES: Record<string, string> = {
   LUXURY_ITEM: '169291', // Women's Bags & Handbags (default)
   VIDEOGAME: '139971', // Video Game Consoles (default)
   STATIONARY: '61778', // Fountain Pens (default - leaf category)
+  COLLECTION_FIGURES: '261068', // Anime & Manga Action Figures
 };
 
 /**
@@ -237,6 +244,7 @@ function generateEBayDescription(listing: MarketListing): string {
     LUXURY_ITEM: 'Authentic Designer Luxury Item',
     VIDEOGAME: 'Authentic Game Console from Japan',
     STATIONARY: 'Authentic Writing Instrument from Japan',
+    COLLECTION_FIGURES: 'Authentic Collectible Figure from Japan',
   };
 
   const title = nicheDescriptions[listing.niche_type] || 'Authentic Pre-Owned Item';
@@ -390,24 +398,45 @@ const EBAY_FINAL_VALUE_FEE = 0.1325; // 13.25%
 const EBAY_PAYMENT_PROCESSING_PERCENT = 0.0235; // 2.35%
 const EBAY_PAYMENT_PROCESSING_FIXED = 0.30; // $0.30
 const EBAY_INTERNATIONAL_FEE = 0.0165; // 1.65%
-const SHIPPING_COST_USD = 30.0; // $30 FedEx International
 const JPY_TO_USD_RATE = 0.0067; // Exchange rate
+
+/**
+ * Shipping costs by niche type (FedEx International)
+ * Collection Figures are larger/heavier, requiring higher shipping cost
+ */
+const SHIPPING_COSTS_BY_NICHE: Record<string, number> = {
+  POKEMON_CARD: 30.0,
+  WATCH: 30.0,
+  CAMERA_GEAR: 30.0,
+  LUXURY_ITEM: 30.0,
+  VIDEOGAME: 30.0,
+  STATIONARY: 30.0,
+  COLLECTION_FIGURES: 42.0, // Higher due to size/weight
+};
+
+/**
+ * Get shipping cost for a specific niche type
+ */
+function getShippingCost(nicheType: string): number {
+  return SHIPPING_COSTS_BY_NICHE[nicheType] || 30.0;
+}
 
 /**
  * Calculate sale price to achieve desired net margin after eBay fees
  *
  * @param costUSD - Item cost in USD
  * @param desiredMarginPercent - Desired net profit margin (e.g., 25 for 25%)
+ * @param shippingCost - Shipping cost in USD (varies by niche)
  * @returns Sale price that achieves the desired net margin
  */
-function calculateSalePriceWithMargin(costUSD: number, desiredMarginPercent: number): number {
+function calculateSalePriceWithMargin(costUSD: number, desiredMarginPercent: number, shippingCost: number): number {
   const totalFeePercent =
     EBAY_FINAL_VALUE_FEE + EBAY_PAYMENT_PROCESSING_PERCENT + EBAY_INTERNATIONAL_FEE;
 
   const desiredProfit = costUSD * (desiredMarginPercent / 100);
 
   const salePrice =
-    (costUSD + SHIPPING_COST_USD + desiredProfit + EBAY_PAYMENT_PROCESSING_FIXED) /
+    (costUSD + shippingCost + desiredProfit + EBAY_PAYMENT_PROCESSING_FIXED) /
     (1 - totalFeePercent);
 
   return salePrice;
@@ -425,8 +454,11 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
   // Convert JPY to USD
   const costUSD = listing.price_jpy * JPY_TO_USD_RATE;
 
+  // Get niche-specific shipping cost
+  const shippingCost = getShippingCost(listing.niche_type);
+
   // Calculate sale price with desired net margin
-  const priceUSD = calculateSalePriceWithMargin(costUSD, netMarginPercent).toFixed(2);
+  const priceUSD = calculateSalePriceWithMargin(costUSD, netMarginPercent, shippingCost).toFixed(2);
 
   // Determine eBay category (use subcategory for luxury items, videogames, and stationary)
   let ebayCategory: string;
@@ -576,6 +608,37 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
       row['C:Point Size'] = 'Medium';
       row['C:Features'] = subcategory === 'FOUNTAIN_PEN' ? 'Refillable' : 'See description';
     }
+  } else if (listing.niche_type === 'COLLECTION_FIGURES') {
+    // Collection Figures item specifics
+    const subcategory = attributes.subcategory || '';
+    const characterName = attributes.character_name || '';
+
+    // Character name from scraped data
+    if (characterName) {
+      row['C:Character'] = characterName;
+    }
+
+    // Character Family (e.g., "Anime", "Manga", etc.) - infer from brand or use generic
+    const brand = attributes.brand || '';
+    if (brand.toLowerCase().includes('bandai') || brand.toLowerCase().includes('good smile')) {
+      row['C:Character Family'] = 'Anime';
+    } else {
+      row['C:Character Family'] = 'See description';
+    }
+
+    // Scale - common for figure types
+    if (subcategory === 'SCALE_FIGURE') {
+      row['C:Scale'] = '1:8'; // Common scale, can be overridden
+    } else if (subcategory === 'NENDOROID') {
+      row['C:Scale'] = 'Non-Scale';
+    } else if (subcategory === 'FIGMA') {
+      row['C:Scale'] = 'Non-Scale';
+    } else {
+      row['C:Scale'] = 'See description';
+    }
+
+    // Material - typically PVC for Japanese figures
+    row['C:Material'] = 'PVC';
   }
 
   return row;
@@ -680,6 +743,11 @@ export async function exportToEBayCSV(
       'C:Ink Color',
       'C:Point Size',
       'C:Features',
+      // Collection Figures fields
+      'C:Character',
+      'C:Character Family',
+      'C:Scale',
+      'C:Material',
       // Shipping and returns
       '*ShippingType',
       'ShippingService-1:Option',
