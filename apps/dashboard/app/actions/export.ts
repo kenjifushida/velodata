@@ -96,11 +96,21 @@ interface EBayCSVRow {
 const EBAY_CATEGORIES: Record<string, string> = {
   WATCH: '31387', // Wristwatches
   CAMERA_GEAR: '15230', // Digital Cameras
-  POKEMON_CARD: '183454', // Pokemon Trading Card Game
+  TCG: '183454', // Trading Card Games (default: Pokemon)
   LUXURY_ITEM: '169291', // Women's Bags & Handbags (default)
   VIDEOGAME: '139971', // Video Game Consoles (default)
   STATIONARY: '61778', // Fountain Pens (default - leaf category)
   COLLECTION_FIGURES: '261068', // Anime & Manga Action Figures
+};
+
+/**
+ * eBay category mapping for TCG games
+ */
+const TCG_GAME_CATEGORIES: Record<string, string> = {
+  POKEMON: '183454', // Pokemon Trading Card Game
+  YUGIOH: '183444', // Yu-Gi-Oh! Trading Card Game
+  ONE_PIECE: '183454', // One Piece TCG (use Pokemon category as proxy)
+  MAGIC: '38292', // Magic: The Gathering Trading Card Game
 };
 
 /**
@@ -138,6 +148,16 @@ const STATIONARY_SUBCATEGORY_CATEGORIES: Record<string, string> = {
 };
 
 /**
+ * Get eBay category for a TCG card based on game
+ */
+function getTCGCategory(game?: string): string {
+  if (game && TCG_GAME_CATEGORIES[game]) {
+    return TCG_GAME_CATEGORIES[game];
+  }
+  return EBAY_CATEGORIES.TCG; // Default to Pokemon category
+}
+
+/**
  * Get eBay category for a luxury item based on subcategory
  */
 function getLuxuryItemCategory(subcategory?: string): string {
@@ -168,67 +188,74 @@ function getStationaryCategory(subcategory?: string): string {
 }
 
 /**
+ * eBay Condition ID Mapping Strategy
+ *
+ * Different eBay categories have different allowed condition IDs.
+ * This configuration maps each niche to its allowed condition mapping.
+ */
+type ConditionMapping = Record<string, string>;
+
+const CONDITION_MAPPINGS: Record<string, ConditionMapping> = {
+  // Standard condition mapping (Used by: TCG, WATCH, CAMERA_GEAR)
+  STANDARD: {
+    N: '1000',    // New
+    S: '1500',    // New other (see details)
+    A: '3000',    // Used - Excellent
+    B: '4000',    // Used - Very Good
+    C: '5000',    // Used - Good
+    D: '6000',    // Used - Acceptable
+    JUNK: '7000', // For parts or not working
+  },
+
+  // Luxury items have unique condition requirements
+  // eBay luxury/fashion categories only accept: 1000, 1500, 1750, 3000
+  LUXURY_ITEM: {
+    N: '1000',    // New with tags
+    S: '1500',    // New without tags
+    A: '1750',    // New with defects
+    B: '3000',    // Pre-owned
+    C: '3000',    // Pre-owned
+    D: '3000',    // Pre-owned
+    JUNK: '3000', // Pre-owned (eBay doesn't allow "parts/not working" for luxury)
+  },
+
+  // Restricted condition mapping for collectibles and electronics
+  // eBay categories only accept: 1000, 1500, 3000, 7000
+  // Used by: VIDEOGAME, STATIONARY, COLLECTION_FIGURES
+  RESTRICTED: {
+    N: '1000',    // New
+    S: '1500',    // New other (see details)
+    A: '3000',    // Used
+    B: '3000',    // Used (4000 not allowed)
+    C: '3000',    // Used (5000 not allowed)
+    D: '3000',    // Used (6000 not allowed)
+    JUNK: '7000', // For parts or not working
+  },
+};
+
+/**
+ * Maps niche types to their condition mapping strategy
+ */
+const NICHE_CONDITION_STRATEGY: Record<string, keyof typeof CONDITION_MAPPINGS> = {
+  TCG: 'STANDARD',
+  WATCH: 'STANDARD',
+  CAMERA_GEAR: 'STANDARD',
+  LUXURY_ITEM: 'LUXURY_ITEM',
+  VIDEOGAME: 'RESTRICTED',
+  STATIONARY: 'RESTRICTED',
+  COLLECTION_FIGURES: 'RESTRICTED',
+};
+
+/**
  * Map condition rank to eBay condition ID
  *
- * @param rank - Condition rank from Hard-Off
- * @param nicheType - Product niche type (different categories may require different condition formats)
+ * @param rank - Condition rank from Hard-Off (N, S, A, B, C, D, JUNK)
+ * @param nicheType - Product niche type
+ * @returns eBay condition ID
  */
 function mapToEBayCondition(rank?: string, nicheType?: string): string {
-  // For luxury items (Women's Bags & Handbags category 169291), use specific condition IDs
-  // eBay luxury/fashion categories only accept: 1000, 1500, 1750, 3000
-  if (nicheType === 'LUXURY_ITEM') {
-    const luxuryConditionMap: Record<string, string> = {
-      N: '1000', // New with tags
-      S: '1500', // New without tags
-      A: '1750', // New with defects
-      B: '3000', // Pre-owned (eBay doesn't have a "Very Good" for luxury, map to Pre-owned)
-      C: '3000', // Pre-owned
-      D: '3000', // Pre-owned
-      JUNK: '3000', // Pre-owned (eBay doesn't allow "parts/not working" for luxury items)
-    };
-    return rank ? (luxuryConditionMap[rank] || '3000') : '3000';
-  }
-
-  // For videogames (Video Game Consoles 139971, Portable Gaming 171831), use restricted condition IDs
-  // eBay videogame categories only accept: 1000, 1500, 3000, 7000
-  if (nicheType === 'VIDEOGAME') {
-    const videogameConditionMap: Record<string, string> = {
-      N: '1000', // New
-      S: '1500', // New other (see details)
-      A: '3000', // Used
-      B: '3000', // Used (4000 not allowed, map to 3000)
-      C: '3000', // Used (5000 not allowed, map to 3000)
-      D: '3000', // Used (6000 not allowed, map to 3000)
-      JUNK: '7000', // For parts or not working
-    };
-    return rank ? (videogameConditionMap[rank] || '3000') : '3000';
-  }
-
-  // For stationary (Collectible Pens 61778-61782), use restricted condition IDs
-  // eBay collectible pen categories only accept: 1000, 1500, 3000, 7000
-  if (nicheType === 'STATIONARY') {
-    const stationaryConditionMap: Record<string, string> = {
-      N: '1000', // New
-      S: '1500', // New other (see details)
-      A: '3000', // Used
-      B: '3000', // Used (4000 not allowed, map to 3000)
-      C: '3000', // Used (5000 not allowed, map to 3000)
-      D: '3000', // Used (6000 not allowed, map to 3000)
-      JUNK: '7000', // For parts or not working
-    };
-    return rank ? (stationaryConditionMap[rank] || '3000') : '3000';
-  }
-
-  // For other categories, use standard condition IDs
-  const conditionMap: Record<string, string> = {
-    N: '1000', // New
-    S: '1500', // New other (see details)
-    A: '3000', // Used - Excellent
-    B: '4000', // Used - Very Good
-    C: '5000', // Used - Good
-    D: '6000', // Used - Acceptable
-    JUNK: '7000', // For parts or not working
-  };
+  const strategy = nicheType ? NICHE_CONDITION_STRATEGY[nicheType] : 'STANDARD';
+  const conditionMap = CONDITION_MAPPINGS[strategy] || CONDITION_MAPPINGS.STANDARD;
 
   return rank ? (conditionMap[rank] || '3000') : '3000';
 }
@@ -240,7 +267,7 @@ function generateEBayDescription(listing: MarketListing): string {
   const nicheDescriptions: Record<string, string> = {
     WATCH: 'Authentic Pre-Owned Luxury Watch',
     CAMERA_GEAR: 'Professional Camera Equipment',
-    POKEMON_CARD: 'Authentic Pokemon Trading Card',
+    TCG: 'Authentic Trading Card Game Card',
     LUXURY_ITEM: 'Authentic Designer Luxury Item',
     VIDEOGAME: 'Authentic Game Console from Japan',
     STATIONARY: 'Authentic Writing Instrument from Japan',
@@ -405,13 +432,13 @@ const JPY_TO_USD_RATE = 0.0067; // Exchange rate
  * Collection Figures are larger/heavier, requiring higher shipping cost
  */
 const SHIPPING_COSTS_BY_NICHE: Record<string, number> = {
-  POKEMON_CARD: 30.0,
+  TCG: 30.0,
   WATCH: 30.0,
   CAMERA_GEAR: 30.0,
   LUXURY_ITEM: 30.0,
   VIDEOGAME: 30.0,
   STATIONARY: 30.0,
-  COLLECTION_FIGURES: 42.0, // Higher due to size/weight
+  COLLECTION_FIGURES: 46.9, // ¥7,000 JPY = $46.90 USD (higher due to size/weight)
 };
 
 /**
@@ -460,9 +487,11 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
   // Calculate sale price with desired net margin
   const priceUSD = calculateSalePriceWithMargin(costUSD, netMarginPercent, shippingCost).toFixed(2);
 
-  // Determine eBay category (use subcategory for luxury items, videogames, and stationary)
+  // Determine eBay category (use subcategory for luxury items, videogames, stationary, and game for TCG)
   let ebayCategory: string;
-  if (listing.niche_type === 'LUXURY_ITEM') {
+  if (listing.niche_type === 'TCG') {
+    ebayCategory = getTCGCategory(attributes.game);
+  } else if (listing.niche_type === 'LUXURY_ITEM') {
     ebayCategory = getLuxuryItemCategory(attributes.subcategory);
   } else if (listing.niche_type === 'VIDEOGAME') {
     ebayCategory = getVideogameCategory(attributes.subcategory);
@@ -589,14 +618,14 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
     row['C:Series'] = modelNumber.split(' ')[0] || 'See description'; // e.g., "EOS" from "EOS R5"
     row['C:Megapixels'] = 'See description'; // Would need to parse from title/specs
     row['C:Optical Zoom'] = 'See description';
-  } else if (listing.niche_type === 'POKEMON_CARD') {
-    // Pokemon Cards - Category 183454 (Pokemon Trading Card Game)
+  } else if (listing.niche_type === 'TCG') {
+    // Trading Card Games - Categories vary by game (Pokemon, Yu-Gi-Oh!, One Piece, Magic)
     // Item specifics: Card Name, Card Number, Set, Rarity, Language
     row['C:Card Name'] = listing.title.substring(0, 50);
     row['C:Card Number'] = attributes.card_number || 'See description';
     row['C:Set'] = attributes.set_code || attributes.set || 'See description';
     row['C:Rarity'] = attributes.rarity || 'See description';
-    row['C:Language'] = 'Japanese'; // Default for Japanese marketplace
+    row['C:Language'] = attributes.language || 'Japanese'; // Default for Japanese marketplace
   } else if (listing.niche_type === 'STATIONARY') {
     // Stationary - Category 159912 (Pens & Writing Instruments)
     // Item specifics: Ink Color, Point Size, Features

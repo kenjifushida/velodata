@@ -10,6 +10,8 @@ import type {
   MarketListing,
   MarketListingFilters,
   MarketListingsResponse,
+  NicheType,
+  SourceId,
 } from '@/lib/models/market-listing';
 
 /**
@@ -98,16 +100,20 @@ export async function getMarketListings(
 /**
  * Get available filter options (for dropdowns)
  */
-export async function getFilterOptions() {
+export async function getFilterOptions(): Promise<{
+  nicheTypes: NicheType[];
+  sources: SourceId[];
+  priceRange: { min_price: number; max_price: number };
+}> {
   try {
     const db = await getDatabase();
     const collection = db.collection<MarketListing>('market_listings');
 
     // Get unique niche types
-    const nicheTypes = await collection.distinct('niche_type');
+    const nicheTypes = await collection.distinct('niche_type') as NicheType[];
 
     // Get unique sources
-    const sources = await collection.distinct('source.source_id');
+    const sources = await collection.distinct('source.source_id') as SourceId[];
 
     // Get price range
     const priceStats = await collection
@@ -122,10 +128,14 @@ export async function getFilterOptions() {
       ])
       .toArray();
 
+    const priceRange = priceStats[0]
+      ? { min_price: priceStats[0].min_price || 0, max_price: priceStats[0].max_price || 100000 }
+      : { min_price: 0, max_price: 100000 };
+
     return {
       nicheTypes,
       sources,
-      priceRange: priceStats[0] || { min_price: 0, max_price: 100000 },
+      priceRange,
     };
   } catch (error) {
     console.error('Error fetching filter options:', error);

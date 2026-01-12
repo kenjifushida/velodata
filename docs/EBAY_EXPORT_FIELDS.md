@@ -217,7 +217,7 @@ Add,261068,Nendoroid Hatsune Miku,85.50,1,FixedPrice,GTC,"Tokyo, Japan",...,Good
 Different niche categories accept different condition IDs:
 
 ### Standard Condition IDs
-Used by: WATCH, CAMERA_GEAR, POKEMON_CARD, COLLECTION_FIGURES
+Used by: WATCH, CAMERA_GEAR, POKEMON_CARD
 
 | Japanese Rank | Condition | eBay ID | Description |
 |---------------|-----------|---------|-------------|
@@ -239,8 +239,8 @@ Used by: LUXURY_ITEM
 | A | Excellent | `1750` | New with defects |
 | B, C, D, JUNK | Pre-owned | `3000` | Pre-owned |
 
-### Videogames Condition IDs
-Used by: VIDEOGAME, STATIONARY
+### Restricted Condition IDs
+Used by: VIDEOGAME, STATIONARY, COLLECTION_FIGURES
 
 | Japanese Rank | Condition | eBay ID | Description |
 |---------------|-----------|---------|-------------|
@@ -257,8 +257,17 @@ Used by: VIDEOGAME, STATIONARY
 
 1. **Cost Calculation:**
    ```
-   Base Cost (JPY → USD) + $30 Shipping = Total Cost
+   Base Cost (JPY → USD) + Shipping Cost = Total Cost
    ```
+
+   **Shipping Costs by Niche:**
+   - Pokemon Cards: $30 (¥4,478 JPY)
+   - Watches: $30 (¥4,478 JPY)
+   - Camera Gear: $30 (¥4,478 JPY)
+   - Luxury Items: $30 (¥4,478 JPY)
+   - Videogames: $30 (¥4,478 JPY)
+   - Stationary: $30 (¥4,478 JPY)
+   - Collection Figures: $46.90 (¥7,000 JPY - higher due to size/weight)
 
 2. **Margin Calculation:**
    ```

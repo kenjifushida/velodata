@@ -152,6 +152,29 @@ export function ListingsTableClient({ listings }: ListingsTableClientProps) {
     return Math.round(total / selectedListings.length);
   };
 
+  // Calculate average shipping cost based on selected items' niches
+  const getAverageShippingCost = () => {
+    const selectedListings = listings.filter((l) => selectedIds.has(l._id));
+    if (selectedListings.length === 0) return 30.0;
+
+    // Shipping costs by niche (must match export.ts)
+    const shippingCostsByNiche: Record<string, number> = {
+      POKEMON_CARD: 30.0,
+      WATCH: 30.0,
+      CAMERA_GEAR: 30.0,
+      LUXURY_ITEM: 30.0,
+      VIDEOGAME: 30.0,
+      STATIONARY: 30.0,
+      COLLECTION_FIGURES: 46.9,
+    };
+
+    const totalShippingCost = selectedListings.reduce((sum, listing) => {
+      return sum + (shippingCostsByNiche[listing.niche_type] || 30.0);
+    }, 0);
+
+    return totalShippingCost / selectedListings.length;
+  };
+
   return (
     <div>
       {/* Success Message */}
@@ -337,6 +360,7 @@ export function ListingsTableClient({ listings }: ListingsTableClientProps) {
         isOpen={showMarkupDialog}
         itemCount={selectedIds.size}
         averagePrice={getAveragePrice()}
+        averageShippingCost={getAverageShippingCost()}
         onConfirm={handleExportConfirm}
         onCancel={handleExportCancel}
       />

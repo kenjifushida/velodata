@@ -27,21 +27,28 @@ class ProductMetadata(BaseModel):
 # NICHE-SPECIFIC IDENTITY MODELS (Discriminated Union Pattern)
 # ============================================================================
 
-class PokemonCardIdentity(BaseModel):
-    """Identity fields specific to Pokemon Trading Cards."""
+class TCGIdentity(BaseModel):
+    """Identity fields specific to Trading Card Games (Pokemon, Yu-Gi-Oh!, One Piece, Magic)."""
 
-    niche_type: Literal["POKEMON_CARD"] = Field(
-        default="POKEMON_CARD",
-        description="Discriminator field for Pokemon cards"
+    niche_type: Literal["TCG"] = Field(
+        default="TCG",
+        description="Discriminator field for trading card games"
     )
-    set_code: str = Field(..., description="Set code (e.g., 'sv2a', 'sv10')")
-    card_number: str = Field(..., description="Card number within set (e.g., '165/165')")
-    name_jp: str = Field(..., description="Japanese name of the card")
-    rarity: str = Field(..., description="Rarity tier (e.g., 'RR', 'SR', 'UR')")
+    game: Literal["POKEMON", "YUGIOH", "ONE_PIECE", "MAGIC"] = Field(
+        ...,
+        description="TCG game type"
+    )
+    set_code: str = Field(..., description="Set code (e.g., 'sv2a', 'BODE-EN', 'OP01', 'BRO')")
+    card_number: str = Field(..., description="Card number within set (e.g., '165', '001')")
+    name_jp: str | None = Field(None, description="Japanese name of the card (if applicable)")
+    name_en: str | None = Field(None, description="English name of the card (if applicable)")
+    rarity: str | None = Field(None, description="Rarity tier (e.g., 'RR', 'SR', 'UR', 'Secret Rare')")
+    language: str | None = Field(default="JP", description="Card language (JP, EN, KO, etc.)")
 
     def generate_id(self) -> str:
-        """Generate unique product ID for Pokemon cards."""
-        return f"{self.set_code}-{self.card_number}"
+        """Generate unique product ID for TCG cards."""
+        game_prefix = self.game.lower()
+        return f"{game_prefix}-{self.set_code}-{self.card_number}"
 
 
 class WatchIdentity(BaseModel):
@@ -101,7 +108,7 @@ class CameraGearIdentity(BaseModel):
 # This is the key architectural pattern: Pydantic will automatically
 # validate and route to the correct identity type based on niche_type
 ProductIdentity = Annotated[
-    Union[PokemonCardIdentity, WatchIdentity, CameraGearIdentity],
+    Union[TCGIdentity, WatchIdentity, CameraGearIdentity],
     Field(discriminator="niche_type")
 ]
 
@@ -124,11 +131,12 @@ class CanonicalProduct(BaseModel):
     - Extensible: Add new niches by creating new Identity models
 
     Examples:
-        # Pokemon Card
+        # TCG Card (Pokemon)
         product = CanonicalProduct(
-            _id="sv2a-165",
-            identity=PokemonCardIdentity(
-                niche_type="POKEMON_CARD",
+            _id="pokemon-sv2a-165",
+            identity=TCGIdentity(
+                niche_type="TCG",
+                game="POKEMON",
                 set_code="sv2a",
                 card_number="165",
                 name_jp="ピカチュウex",
@@ -177,7 +185,7 @@ class CanonicalProduct(BaseModel):
     )
 
     @property
-    def niche_type(self) -> Literal["POKEMON_CARD", "WATCH", "CAMERA_GEAR"]:
+    def niche_type(self) -> Literal["TCG", "WATCH", "CAMERA_GEAR"]:
         """Convenience property to access niche type."""
         return self.identity.niche_type
 
@@ -186,23 +194,67 @@ class CanonicalProduct(BaseModel):
 # HELPER FUNCTIONS
 # ============================================================================
 
-def create_pokemon_card_product(
+def create_tcg_product(
+    game: Literal["POKEMON", "YUGIOH", "ONE_PIECE", "MAGIC"],
     set_code: str,
     card_number: str,
-    name_jp: str,
-    rarity: str,
     image_url: str,
     source_url: str,
+    name_jp: str | None = None,
+    name_en: str | None = None,
+    rarity: str | None = None,
+    language: str | None = "JP",
 ) -> CanonicalProduct:
     """
-    Factory function for creating Pokemon card products.
+    Factory function for creating TCG products.
     Handles ID generation automatically.
+
+    Args:
+        game: TCG game type (POKEMON, YUGIOH, ONE_PIECE, MAGIC)
+        set_code: Set code (e.g., 'sv2a', 'BODE-EN', 'OP01', 'BRO')
+        card_number: Card number within set
+        image_url: URL to product image
+        source_url: Original source URL
+        name_jp: Japanese name (optional)
+        name_en: English name (optional)
+        rarity: Rarity tier (optional)
+        language: Card language (default: JP)
+
+    Returns:
+        CanonicalProduct with TCG identity
+
+    Examples:
+        # Pokemon card
+        product = create_tcg_product(
+            game="POKEMON",
+            set_code="sv2a",
+            card_number="165",
+            name_jp="ピカチュウex",
+            rarity="RR",
+            image_url="https://...",
+            source_url="https://..."
+        )
+
+        # Yu-Gi-Oh! card
+        product = create_tcg_product(
+            game="YUGIOH",
+            set_code="BODE-EN",
+            card_number="001",
+            name_en="Blue-Eyes White Dragon",
+            rarity="Secret Rare",
+            image_url="https://...",
+            source_url="https://...",
+            language="EN"
+        )
     """
-    identity = PokemonCardIdentity(
+    identity = TCGIdentity(
+        game=game,
         set_code=set_code,
         card_number=card_number,
         name_jp=name_jp,
+        name_en=name_en,
         rarity=rarity,
+        language=language,
     )
 
     return CanonicalProduct(
@@ -293,9 +345,14 @@ def create_camera_gear_product(
 # TYPE GUARDS (for type-safe access)
 # ============================================================================
 
-def is_pokemon_card(product: CanonicalProduct) -> bool:
-    """Type guard: Check if product is a Pokemon card."""
-    return isinstance(product.identity, PokemonCardIdentity)
+def is_tcg(product: CanonicalProduct) -> bool:
+    """Type guard: Check if product is a TCG card."""
+    return isinstance(product.identity, TCGIdentity)
+
+
+def is_tcg_game(product: CanonicalProduct, game: Literal["POKEMON", "YUGIOH", "ONE_PIECE", "MAGIC"]) -> bool:
+    """Type guard: Check if product is a specific TCG game."""
+    return is_tcg(product) and product.identity.game == game
 
 
 def is_watch(product: CanonicalProduct) -> bool:

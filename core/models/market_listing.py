@@ -44,7 +44,8 @@ class MarketSource(BaseModel):
         "YAHOO_AUCTIONS_JP",
         "SURUGA_YA",
         "MAP_CAMERA",
-        "POKEMON_CENTER_ONLINE"
+        "POKEMON_CENTER_ONLINE",
+        "PAYPAY_FLEA_MARKET"
     ]
     display_name: str
     base_url: str
@@ -101,6 +102,15 @@ class MarketSource(BaseModel):
             source_id="POKEMON_CENTER_ONLINE",
             display_name="Pokemon Center Online",
             base_url="https://www.pokemoncenter-online.com"
+        )
+
+    @classmethod
+    def paypay(cls) -> "MarketSource":
+        """Factory for PayPay Flea Market source."""
+        return cls(
+            source_id="PAYPAY_FLEA_MARKET",
+            display_name="PayPay Flea Market",
+            base_url="https://paypayfleamarket.yahoo.co.jp"
         )
 
 
@@ -161,15 +171,16 @@ class MarketListing(BaseModel):
             }
         )
 
-        # Pokemon Card Listing from Suruga-ya
+        # TCG Card Listing from Suruga-ya
         listing = MarketListing(
             _id="SURUGA_YA_987654321",
-            niche_type="POKEMON_CARD",
+            niche_type="TCG",
             source=MarketSource.suruga_ya(),
             title="ピカチュウex RR sv2a 165/165",
             price_jpy=1500,
             url="https://www.suruga-ya.jp/product/987654321",
             attributes={
+                "game": "POKEMON",
                 "set_code": "sv2a",
                 "card_number": "165",
                 "rarity": "RR",
@@ -192,7 +203,7 @@ class MarketListing(BaseModel):
     )
 
     # --- CLASSIFICATION ---
-    niche_type: Literal["POKEMON_CARD", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "VIDEOGAME", "STATIONARY", "COLLECTION_FIGURES"] = Field(
+    niche_type: Literal["TCG", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "VIDEOGAME", "STATIONARY", "COLLECTION_FIGURES"] = Field(
         ...,
         description="Product niche type (must match canonical_products niche types)"
     )
@@ -300,7 +311,7 @@ class MarketListing(BaseModel):
 
 def create_hardoff_listing(
     external_id: str,
-    niche_type: Literal["POKEMON_CARD", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "VIDEOGAME"],
+    niche_type: Literal["TCG", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "VIDEOGAME"],
     title: str,
     price_jpy: int,
     url: str,
@@ -359,7 +370,7 @@ def create_hardoff_listing(
 
 def create_mercari_listing(
     external_id: str,
-    niche_type: Literal["POKEMON_CARD", "WATCH", "CAMERA_GEAR"],
+    niche_type: Literal["TCG", "WATCH", "CAMERA_GEAR"],
     title: str,
     price_jpy: int,
     url: str,
@@ -401,7 +412,7 @@ def create_mercari_listing(
 
 def create_suruga_ya_listing(
     external_id: str,
-    niche_type: Literal["POKEMON_CARD", "WATCH", "CAMERA_GEAR"],
+    niche_type: Literal["TCG", "WATCH", "CAMERA_GEAR"],
     title: str,
     price_jpy: int,
     url: str,
@@ -477,6 +488,65 @@ def create_map_camera_listing(
         price_jpy=price_jpy,
         url=url,
         image_url=image_url,
+        listed_at=listed_at,
+        attributes=attributes,
+        scrape_session_id=scrape_session_id,
+    )
+
+
+def create_paypay_listing(
+    external_id: str,
+    niche_type: Literal["TCG", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "VIDEOGAME", "STATIONARY", "COLLECTION_FIGURES"],
+    title: str,
+    price_jpy: int,
+    url: str,
+    attributes: Dict[str, Any],
+    image_urls: Optional[List[str]] = None,
+    listed_at: Optional[datetime] = None,
+    scrape_session_id: Optional[str] = None,
+) -> MarketListing:
+    """
+    Factory function for creating PayPay Flea Market listings.
+
+    Args:
+        external_id: PayPay's internal product ID
+        niche_type: Product category
+        title: Product title (Japanese)
+        price_jpy: Price in Yen
+        url: Direct URL to listing
+        attributes: Niche-specific attributes
+        image_urls: List of product image URLs
+        listed_at: When the seller originally listed the item (if available)
+        scrape_session_id: Scraping session correlation ID
+
+    Returns:
+        MarketListing instance
+
+    Example:
+        listing = create_paypay_listing(
+            external_id="abc123def456",
+            niche_type="TCG",
+            title="ピカチュウex RR sv2a 165/165",
+            price_jpy=1500,
+            url="https://paypayfleamarket.yahoo.co.jp/item/abc123def456",
+            image_urls=["https://..."],
+            attributes={
+                "game": "POKEMON",
+                "set_code": "sv2a",
+                "card_number": "165",
+                "rarity": "RR",
+                "condition": "NM"
+            }
+        )
+    """
+    return MarketListing(
+        _id=f"PAYPAY_FLEA_MARKET_{external_id}",
+        niche_type=niche_type,
+        source=MarketSource.paypay(),
+        title=title,
+        price_jpy=price_jpy,
+        url=url,
+        image_urls=image_urls or [],
         listed_at=listed_at,
         attributes=attributes,
         scrape_session_id=scrape_session_id,
@@ -573,32 +643,36 @@ class WatchAttributes:
         }
 
 
-class PokemonCardAttributes:
+class TCGAttributes:
     """
-    Helper class for type-safe Pokemon card attribute access.
+    Helper class for type-safe TCG card attribute access.
 
-    Common attributes for Pokemon cards from Japanese marketplaces:
-    - set_code: Set identifier (e.g., "sv2a", "sv10")
+    Common attributes for TCG cards from Japanese marketplaces:
+    - game: Game type (POKEMON, YUGIOH, ONE_PIECE, MAGIC)
+    - set_code: Set identifier (e.g., "sv2a", "BODE-EN", "OP01", "BRO")
     - card_number: Card number within set
-    - rarity: Rarity tier (RR, SR, UR, etc.)
+    - rarity: Rarity tier (RR, SR, UR, Secret Rare, etc.)
     - condition: Card condition (NM, LP, MP, HP, DMG)
-    - language: Card language (usually "JP")
+    - language: Card language (JP, EN, etc.)
     - graded: Is the card graded?
     - grade: PSA/BGS grade if applicable
+    - card_name_jp: Japanese card name
+    - card_name_en: English card name
     """
 
     @staticmethod
     def extract(attributes: Dict[str, Any]) -> Dict[str, Optional[str]]:
         """
-        Extract Pokemon card attributes safely.
+        Extract TCG card attributes safely.
 
         Args:
             attributes: Raw attributes dictionary
 
         Returns:
-            Dictionary with typed Pokemon card fields
+            Dictionary with typed TCG card fields
         """
         return {
+            "game": attributes.get("game"),
             "set_code": attributes.get("set_code"),
             "card_number": attributes.get("card_number"),
             "rarity": attributes.get("rarity"),
@@ -606,7 +680,8 @@ class PokemonCardAttributes:
             "language": attributes.get("language", "JP"),
             "graded": attributes.get("graded"),
             "grade": attributes.get("grade"),
-            "card_name": attributes.get("card_name"),
+            "card_name_jp": attributes.get("card_name_jp"),
+            "card_name_en": attributes.get("card_name_en"),
         }
 
 

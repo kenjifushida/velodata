@@ -64,8 +64,10 @@ export async function deleteMarketListings(
     const collection = db.collection('market_listings');
 
     // Delete listings
+    // Note: _id is a string in our schema (e.g., "HARDOFF_5705008", "PAYPAY_FLEA_MARKET_z540792598")
+    // not ObjectId, so we can use the string array directly
     const result = await collection.deleteMany({
-      _id: { $in: listingIds },
+      _id: { $in: listingIds as any },
     });
 
     // Log successful deletion

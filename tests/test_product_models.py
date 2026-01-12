@@ -13,46 +13,83 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from core.models.product import (
     CanonicalProduct,
-    PokemonCardIdentity,
+    TCGIdentity,
     WatchIdentity,
     CameraGearIdentity,
     ProductMetadata,
-    create_pokemon_card_product,
+    create_tcg_product,
     create_watch_product,
     create_camera_gear_product,
-    is_pokemon_card,
+    is_tcg,
+    is_tcg_game,
     is_watch,
     is_camera_gear,
 )
 from pydantic import ValidationError
 
 
-def test_pokemon_card_creation():
-    """Test Pokemon card product creation with factory function."""
-    print("\n=== Test 1: Pokemon Card Creation ===")
+def test_tcg_creation():
+    """Test TCG product creation with factory function."""
+    print("\n=== Test 1: TCG Card Creation ===")
 
-    product = create_pokemon_card_product(
+    # Test Pokemon TCG
+    pokemon_product = create_tcg_product(
+        game="POKEMON",
         set_code="sv2a",
         card_number="165",
-        name_jp="ԫ��ex",
+        name_jp="ピカチュウex",
         rarity="RR",
         image_url="https://example.com/image.jpg",
         source_url="https://pokemon-card.com/card/sv2a-165",
     )
 
-    # Assertions
-    assert product.id == "sv2a-165", f"Expected ID 'sv2a-165', got '{product.id}'"
-    assert product.niche_type == "POKEMON_CARD", f"Expected niche 'POKEMON_CARD', got '{product.niche_type}'"
-    assert isinstance(product.identity, PokemonCardIdentity), "Identity should be PokemonCardIdentity"
-    assert product.identity.set_code == "sv2a"
-    assert product.identity.card_number == "165"
-    assert product.identity.name_jp == "ԫ��ex"
-    assert is_pokemon_card(product), "Type guard should return True"
+    # Assertions for Pokemon
+    assert pokemon_product.id == "pokemon-sv2a-165", f"Expected ID 'pokemon-sv2a-165', got '{pokemon_product.id}'"
+    assert pokemon_product.niche_type == "TCG", f"Expected niche 'TCG', got '{pokemon_product.niche_type}'"
+    assert isinstance(pokemon_product.identity, TCGIdentity), "Identity should be TCGIdentity"
+    assert pokemon_product.identity.game == "POKEMON"
+    assert pokemon_product.identity.set_code == "sv2a"
+    assert pokemon_product.identity.card_number == "165"
+    assert pokemon_product.identity.name_jp == "ピカチュウex"
+    assert is_tcg(pokemon_product), "Type guard should return True"
+    assert is_tcg_game(pokemon_product, "POKEMON"), "Game type guard should return True"
 
-    print(" Pokemon card creation test passed")
-    print(f"   Product ID: {product.id}")
-    print(f"   Niche Type: {product.niche_type}")
-    print(f"   Card: {product.identity.name_jp}")
+    print("✓ TCG card creation test passed (Pokemon)")
+    print(f"   Product ID: {pokemon_product.id}")
+    print(f"   Niche Type: {pokemon_product.niche_type}")
+    print(f"   Game: {pokemon_product.identity.game}")
+    print(f"   Card: {pokemon_product.identity.name_jp}")
+
+    # Test Yu-Gi-Oh! TCG
+    yugioh_product = create_tcg_product(
+        game="YUGIOH",
+        set_code="BODE-EN",
+        card_number="001",
+        name_en="Blue-Eyes White Dragon",
+        rarity="Secret Rare",
+        image_url="https://example.com/yugioh.jpg",
+        source_url="https://example.com",
+        language="EN",
+    )
+
+    assert yugioh_product.id == "yugioh-BODE-EN-001"
+    assert is_tcg_game(yugioh_product, "YUGIOH")
+    print("✓ TCG card creation test passed (Yu-Gi-Oh!)")
+
+    # Test One Piece TCG
+    onepiece_product = create_tcg_product(
+        game="ONE_PIECE",
+        set_code="OP01",
+        card_number="001",
+        name_en="Monkey D. Luffy",
+        rarity="SR",
+        image_url="https://example.com/onepiece.jpg",
+        source_url="https://example.com",
+    )
+
+    assert onepiece_product.id == "one_piece-OP01-001"
+    assert is_tcg_game(onepiece_product, "ONE_PIECE")
+    print("✓ TCG card creation test passed (One Piece)")
 
 
 def test_watch_creation():
@@ -78,7 +115,7 @@ def test_watch_creation():
     assert product.identity.serial_number == "ABC123XYZ"
     assert is_watch(product), "Type guard should return True"
 
-    print(" Watch creation test passed")
+    print("✓ Watch creation test passed")
     print(f"   Product ID: {product.id}")
     print(f"   Niche Type: {product.niche_type}")
     print(f"   Watch: {product.identity.brand} {product.identity.model}")
@@ -138,31 +175,33 @@ def test_camera_gear_creation():
     print(f"   Gear: {lens_product.identity.brand} {lens_product.identity.model_number}")
 
 
-def test_manual_pokemon_card():
-    """Test manual Pokemon card creation (without factory)."""
-    print("\n=== Test 4: Manual Pokemon Card Creation ===")
+def test_manual_tcg_card():
+    """Test manual TCG card creation (without factory)."""
+    print("\n=== Test 4: Manual TCG Card Creation ===")
 
-    identity = PokemonCardIdentity(
-        set_code="sv10",
+    identity = TCGIdentity(
+        game="ONE_PIECE",
+        set_code="OP01",
         card_number="042",
-        name_jp="����ex",
-        rarity="SAR",
+        name_en="Monkey D. Luffy",
+        rarity="SR",
     )
 
     product = CanonicalProduct(
         _id=identity.generate_id(),
         identity=identity,
         metadata=ProductMetadata(
-            image_url="https://example.com/charizard.jpg",
-            source_url="https://pokemon-card.com",
+            image_url="https://example.com/luffy.jpg",
+            source_url="https://onepiece-card.com",
         ),
     )
 
-    assert product.id == "sv10-042"
-    assert product.niche_type == "POKEMON_CARD"
-    assert product.identity.rarity == "SAR"
+    assert product.id == "one_piece-OP01-042"
+    assert product.niche_type == "TCG"
+    assert product.identity.rarity == "SR"
+    assert is_tcg_game(product, "ONE_PIECE")
 
-    print(" Manual Pokemon card creation passed")
+    print("✓ Manual TCG card creation passed")
 
 
 def test_wrong_niche_type_validation():
@@ -170,26 +209,25 @@ def test_wrong_niche_type_validation():
     print("\n=== Test 5: Wrong Niche Type Validation ===")
 
     try:
-        # Try to create a product with WATCH niche but Pokemon identity fields
+        # Try to create a product with WATCH niche but TCG identity fields
         product = CanonicalProduct(
             _id="test-001",
             identity={
                 "niche_type": "WATCH",  # Wrong!
-                "set_code": "sv2a",  # This is Pokemon field
+                "game": "POKEMON",  # This is TCG field
+                "set_code": "sv2a",
                 "card_number": "001",
-                "name_jp": "Test",
-                "rarity": "R",
             },
             metadata=ProductMetadata(
                 image_url="https://example.com/test.jpg",
                 source_url="https://example.com",
             ),
         )
-        print("L Should have raised ValidationError!")
+        print("✗ Should have raised ValidationError!")
         assert False, "Expected ValidationError but got none"
 
     except ValidationError as e:
-        print(" Correctly raised ValidationError for mismatched niche type")
+        print("✓ Correctly raised ValidationError for mismatched niche type")
         print(f"   Error: {str(e)[:100]}...")
 
 
@@ -198,13 +236,15 @@ def test_serialization():
     print("\n=== Test 6: Serialization/Deserialization ===")
 
     # Create product
-    product = create_pokemon_card_product(
-        set_code="sv8",
+    product = create_tcg_product(
+        game="MAGIC",
+        set_code="BRO",
         card_number="100",
-        name_jp="����ex",
-        rarity="UR",
-        image_url="https://example.com/mewtwo.jpg",
-        source_url="https://pokemon-card.com",
+        name_en="Black Lotus",
+        rarity="Mythic Rare",
+        image_url="https://example.com/lotus.jpg",
+        source_url="https://magic.wizards.com",
+        language="EN",
     )
 
     # Serialize to dict (for MongoDB)
@@ -212,16 +252,17 @@ def test_serialization():
 
     assert "_id" in product_dict, "Should have _id field"
     assert "identity" in product_dict
-    assert product_dict["identity"]["niche_type"] == "POKEMON_CARD"
+    assert product_dict["identity"]["niche_type"] == "TCG"
+    assert product_dict["identity"]["game"] == "MAGIC"
 
     # Deserialize back
     restored_product = CanonicalProduct(**product_dict)
 
     assert restored_product.id == product.id
     assert restored_product.niche_type == product.niche_type
-    assert isinstance(restored_product.identity, PokemonCardIdentity)
+    assert isinstance(restored_product.identity, TCGIdentity)
 
-    print(" Serialization/deserialization test passed")
+    print("✓ Serialization/deserialization test passed")
     print(f"   Original ID: {product.id}")
     print(f"   Restored ID: {restored_product.id}")
 
@@ -230,10 +271,11 @@ def test_type_guards():
     """Test type guard functions."""
     print("\n=== Test 7: Type Guards ===")
 
-    pokemon_product = create_pokemon_card_product(
+    tcg_product = create_tcg_product(
+        game="POKEMON",
         set_code="sv1",
         card_number="001",
-        name_jp="���",
+        name_jp="ニャオハ",
         rarity="C",
         image_url="https://example.com/sprigatito.jpg",
         source_url="https://pokemon-card.com",
@@ -247,15 +289,16 @@ def test_type_guards():
         source_url="https://chrono24.com",
     )
 
-    # Pokemon product checks
-    assert is_pokemon_card(pokemon_product), "Should identify as Pokemon card"
-    assert not is_watch(pokemon_product), "Should not identify as watch"
+    # TCG product checks
+    assert is_tcg(tcg_product), "Should identify as TCG"
+    assert is_tcg_game(tcg_product, "POKEMON"), "Should identify as Pokemon"
+    assert not is_watch(tcg_product), "Should not identify as watch"
 
     # Watch product checks
     assert is_watch(watch_product), "Should identify as watch"
-    assert not is_pokemon_card(watch_product), "Should not identify as Pokemon card"
+    assert not is_tcg(watch_product), "Should not identify as TCG"
 
-    print(" Type guards test passed")
+    print("✓ Type guards test passed")
 
 
 def main():
@@ -265,10 +308,10 @@ def main():
     print("=" * 70)
 
     tests = [
-        test_pokemon_card_creation,
+        test_tcg_creation,
         test_watch_creation,
         test_camera_gear_creation,
-        test_manual_pokemon_card,
+        test_manual_tcg_card,
         test_wrong_niche_type_validation,
         test_serialization,
         test_type_guards,
@@ -283,7 +326,7 @@ def main():
             passed += 1
         except Exception as e:
             failed += 1
-            print(f"L Test failed: {test.__name__}")
+            print(f"✗ Test failed: {test.__name__}")
             print(f"   Error: {e}")
 
     print("\n" + "=" * 70)

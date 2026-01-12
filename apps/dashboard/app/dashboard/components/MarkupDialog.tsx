@@ -12,6 +12,7 @@ export interface MarkupDialogProps {
   isOpen: boolean;
   itemCount: number;
   averagePrice: number;
+  averageShippingCost: number;
   onConfirm: (markup: number) => void;
   onCancel: () => void;
 }
@@ -26,12 +27,12 @@ const EBAY_FINAL_VALUE_FEE = 0.1325; // 13.25%
 const EBAY_PAYMENT_PROCESSING_PERCENT = 0.0235; // 2.35%
 const EBAY_PAYMENT_PROCESSING_FIXED = 0.30; // $0.30
 const EBAY_INTERNATIONAL_FEE = 0.0165; // 1.65%
-const SHIPPING_COST = 30.0; // $30 FedEx International
 
 export function MarkupDialog({
   isOpen,
   itemCount,
   averagePrice,
+  averageShippingCost,
   onConfirm,
   onCancel,
 }: MarkupDialogProps) {
@@ -80,7 +81,7 @@ export function MarkupDialog({
    * Net Margin = Sale Price - Cost - Shipping - eBay Fees
    * eBay Fees = Sale Price * (FVF + Payment % + Intl %) + Payment Fixed
    *
-   * NOTE: Shipping cost ($30) is included in the item price. Buyers see "Free Shipping".
+   * NOTE: Shipping cost (varies by niche) is included in the item price. Buyers see "Free Shipping".
    *
    * Solving for Sale Price given desired margin:
    * Sale Price = (Cost + Shipping + Desired Margin + Payment Fixed) / (1 - Total Fee %)
@@ -95,7 +96,7 @@ export function MarkupDialog({
     // Calculate sale price needed to achieve desired margin
     // Shipping cost is included in the sale price
     const salePrice =
-      (avgCostUSD + SHIPPING_COST + desiredProfit + EBAY_PAYMENT_PROCESSING_FIXED) /
+      (avgCostUSD + averageShippingCost + desiredProfit + EBAY_PAYMENT_PROCESSING_FIXED) /
       (1 - totalFeePercent);
 
     // Calculate actual fees (eBay fees are calculated on sale price only, not shipping)
@@ -106,7 +107,7 @@ export function MarkupDialog({
     const totalFees = finalValueFee + paymentFee + internationalFee;
 
     // Net profit after all fees (shipping cost already accounted for in sale price)
-    const netProfit = salePrice - avgCostUSD - SHIPPING_COST - totalFees;
+    const netProfit = salePrice - avgCostUSD - averageShippingCost - totalFees;
     const actualMargin = (netProfit / avgCostUSD) * 100;
 
     return {
@@ -154,7 +155,7 @@ export function MarkupDialog({
           Configure eBay Export Pricing
         </h3>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Set your desired net profit margin after eBay fees. The $30 shipping cost is included
+          Set your desired net profit margin after eBay fees. Shipping costs (${averageShippingCost.toFixed(2)} avg) are included
           in the item price, so buyers see free shipping.
         </p>
 
@@ -200,7 +201,7 @@ export function MarkupDialog({
             <div className="flex justify-between">
               <span className="text-zinc-600 dark:text-zinc-400">Shipping (FedEx International)</span>
               <span className="font-medium text-zinc-900 dark:text-zinc-50">
-                ${SHIPPING_COST.toFixed(2)}
+                ${averageShippingCost.toFixed(2)}
               </span>
             </div>
             <div className="flex justify-between border-t border-zinc-200 pt-2 dark:border-zinc-700">
