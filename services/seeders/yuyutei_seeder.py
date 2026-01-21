@@ -656,10 +656,19 @@ def seed_canonical_products(
         db = get_db()
         collection = db["canonical_products"]
 
-    stats = {"inserted": 0, "updated": 0, "errors": 0}
+    stats = {"inserted": 0, "updated": 0, "errors": 0, "skipped": 0}
 
     for card_data in cards_data:
         try:
+            # Skip cards without a name
+            if not card_data.get("name_jp"):
+                stats["skipped"] += 1
+                logger.debug(
+                    f"Skipping card without name: {card_data.get('set_code')}-{card_data.get('card_number')}",
+                    extra={"game": game, "card_data": card_data, "correlation_id": session_id}
+                )
+                continue
+
             # Validate using factory function
             product = create_tcg_product(
                 game=game,
@@ -1000,6 +1009,7 @@ Examples:
                 "cards_found": len(all_cards),
                 "cards_inserted": stats["inserted"],
                 "cards_updated": stats["updated"],
+                "cards_skipped": stats["skipped"],
                 "errors": stats["errors"],
                 "success_rate": f"{success_rate:.1f}%"
             }
@@ -1015,6 +1025,7 @@ Examples:
         print(f"Cards Found:      {len(all_cards)}")
         print(f"Cards Inserted:   {stats['inserted']}")
         print(f"Cards Updated:    {stats['updated']}")
+        print(f"Cards Skipped:    {stats['skipped']} (no name)")
         print(f"Errors:           {stats['errors']}")
         print(f"Success Rate:     {success_rate:.1f}%")
         print("=" * 60)
