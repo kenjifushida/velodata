@@ -7,7 +7,17 @@ Scrapes product listings from PayPay Flea Market (Japanese secondhand marketplac
 in the market_listings MongoDB collection for later processing by the matching pipeline.
 
 Supported Niches:
-    - TCG: Trading Card Games (Pokemon, Yu-Gi-Oh!, One Piece, Magic)
+    - TCG: Trading Card Games (auto-detects game from title)
+        - Pokemon Card Game (ポケモンカード)
+        - Yu-Gi-Oh! (遊戯王)
+        - One Piece Card Game (ワンピースカード)
+        - Magic: The Gathering (MTG)
+        - Weiss Schwarz (ヴァイスシュヴァルツ)
+        - Dragon Ball Super Card Game
+        - Digimon Card Game (デジモンカード)
+        - Cardfight!! Vanguard (ヴァンガード)
+        - Union Arena (ユニオンアリーナ)
+        - Duel Masters (デュエルマスターズ)
     - WATCH: Luxury and vintage wristwatches
     - CAMERA_GEAR: Digital cameras, lenses, and photography equipment
     - LUXURY_ITEM: Designer bags, wallets, and accessories
@@ -16,8 +26,20 @@ Supported Niches:
     - COLLECTION_FIGURES: Anime figures, collectible figurines, and model kits
 
 Usage:
-    # Dry run (don't save to database, just print)
+    # Dry run - Pokemon cards (Japanese)
     python paypay_scraper.py --niche TCG --keyword "ポケモンカード" --max-pages 2 --dry-run --headed
+
+    # Dry run - One Piece cards
+    python paypay_scraper.py --niche TCG --keyword "ワンピースカード" --max-pages 2 --dry-run
+
+    # Dry run - Yu-Gi-Oh! cards
+    python paypay_scraper.py --niche TCG --keyword "遊戯王" --max-pages 2 --dry-run
+
+    # Dry run - Weiss Schwarz cards
+    python paypay_scraper.py --niche TCG --keyword "ヴァイスシュヴァルツ" --max-pages 2 --dry-run
+
+    # Dry run - Magic: The Gathering
+    python paypay_scraper.py --niche TCG --keyword "MTG" --max-pages 2 --dry-run
 
     # Live run (save to market_listings collection, headless)
     python paypay_scraper.py --niche TCG --keyword "ワンピースカード" --max-pages 5
@@ -57,6 +79,14 @@ except ImportError:
 from core.database import get_db, close_db
 from core.models.market_listing import create_paypay_listing, MarketListing
 from core.logging import get_logger, log_execution_time
+from core.tcg_games import (
+    TCGGame,
+    TCGGameDetector,
+    get_detector,
+    detect_tcg_game,
+    extract_tcg_card_info,
+    ALL_GAME_CONFIGS,
+)
 
 # Initialize logger for this service
 logger = get_logger("paypay-scraper")
@@ -182,83 +212,71 @@ def extract_tcg_attributes(title: str) -> Dict[str, Optional[str]]:
     """
     Extract TCG-specific attributes from product title.
 
+    Uses the centralized TCGGameDetector for robust game detection and
+    card info extraction across multiple TCG games.
+
+    Supported Games:
+        - Pokemon Card Game (ポケモンカード)
+        - Yu-Gi-Oh! (遊戯王)
+        - One Piece Card Game (ワンピースカード)
+        - Magic: The Gathering (MTG)
+        - Weiss Schwarz (ヴァイスシュヴァルツ)
+        - Dragon Ball Super Card Game
+        - Digimon Card Game (デジモンカード)
+        - Cardfight!! Vanguard (ヴァンガード)
+        - Union Arena (ユニオンアリーナ)
+        - Duel Masters (デュエルマスターズ)
+
     Args:
-        title: Product title from PayPay listing
+        title: Product title from PayPay listing (Japanese or English)
 
     Returns:
-        Dictionary with extracted TCG attributes (game, set_code, card_number, rarity)
+        Dictionary with extracted TCG attributes:
+        - game: TCG game type (POKEMON, YUGIOH, ONE_PIECE, etc.)
+        - set_code: Set/expansion code
+        - card_number: Card number within set
+        - rarity: Card rarity
+        - language: Card language (JP, EN, etc.)
+        - raw_title: Original title for debugging
     """
-    attributes = {
-        "game": None,
-        "set_code": None,
-        "card_number": None,
-        "rarity": None,
-        "language": "JP",
-    }
+    # Use centralized TCG game detector
+    card_info = extract_tcg_card_info(title)
 
-    # Detect game type from title keywords
-    title_lower = title.lower()
-    if any(keyword in title_lower for keyword in ["ポケモン", "ポケカ", "pokemon", "ピカチュウ", "リザードン"]):
-        attributes["game"] = "POKEMON"
-    elif any(keyword in title_lower for keyword in ["遊戯王", "yugioh", "yu-gi-oh", "ブルーアイズ"]):
-        attributes["game"] = "YUGIOH"
-    elif any(keyword in title_lower for keyword in ["ワンピース", "one piece", "ワンピ", "ルフィ", "ゾロ"]):
-        attributes["game"] = "ONE_PIECE"
-    elif any(keyword in title_lower for keyword in ["magic", "マジック", "mtg"]):
-        attributes["game"] = "MAGIC"
+    # Add raw_title for debugging and future NLP processing
+    card_info["raw_title"] = title
 
-    # Extract set code patterns
-    # Pokemon: sv2a, sv1, sv4a, etc.
-    # Yu-Gi-Oh!: BODE-EN, DIFO-JP, etc.
-    # One Piece: OP01, OP02, etc.
-    # Magic: BRO, DMU, etc.
-    set_patterns = [
-        r'sv\d+[a-z]?',  # Pokemon Scarlet/Violet: sv2a, sv1, sv4a
-        r's\d+[a-z]?',   # Pokemon Sword/Shield: s8a, s6a
-        r'OP\d+',        # One Piece: OP01, OP02
-        r'[A-Z]{3,4}-[A-Z]{2}',  # Yu-Gi-Oh!: BODE-EN, DIFO-JP
-        r'[A-Z]{3}',     # Magic: BRO, DMU
-    ]
+    logger.debug(
+        f"Extracted TCG attributes",
+        extra={
+            "title": title[:50] if title else None,
+            "game": card_info.get("game"),
+            "set_code": card_info.get("set_code"),
+            "rarity": card_info.get("rarity"),
+        }
+    )
 
-    for pattern in set_patterns:
-        match = re.search(pattern, title, re.IGNORECASE)
-        if match:
-            attributes["set_code"] = match.group(0).upper()
-            break
+    return card_info
 
-    # Extract card number patterns
-    # Patterns: 165/165, #001, No.001, 001/100
-    card_number_patterns = [
-        r'(\d+)/\d+',    # 165/165 format
-        r'#(\d+)',       # #001 format
-        r'No\.?(\d+)',   # No.001 or No001 format
-        r'(\d{3})',      # Raw 3-digit number (as fallback)
-    ]
 
-    for pattern in card_number_patterns:
-        match = re.search(pattern, title)
-        if match:
-            attributes["card_number"] = match.group(1)
-            break
+def get_tcg_game_display_name(game: Optional[str]) -> str:
+    """
+    Get display name for a TCG game.
 
-    # Extract rarity
-    rarity_keywords = {
-        "UR": ["UR", "ウルトラレア", "ultra rare"],
-        "SR": ["SR", "スーパーレア", "super rare"],
-        "RR": ["RR", "ダブルレア", "double rare"],
-        "R": ["R", "レア", " rare"],  # Space before "rare" to avoid matching "super rare"
-        "SAR": ["SAR"],
-        "AR": ["AR"],
-        "Secret": ["シークレット", "secret"],
-        "Promo": ["プロモ", "promo"],
-    }
+    Args:
+        game: TCG game string (e.g., "POKEMON", "YUGIOH")
 
-    for rarity_code, keywords in rarity_keywords.items():
-        if any(keyword in title_lower for keyword in keywords):
-            attributes["rarity"] = rarity_code
-            break
+    Returns:
+        Display name (e.g., "Pokemon Card Game", "Yu-Gi-Oh!")
+    """
+    if not game:
+        return "Unknown TCG"
 
-    return attributes
+    try:
+        tcg_game = TCGGame(game)
+        config = ALL_GAME_CONFIGS.get(tcg_game)
+        return config.display_name_en if config else game
+    except ValueError:
+        return game
 
 
 # ============================================================================
@@ -502,25 +520,37 @@ def extract_product_from_element(
         external_id = item_id_match.group(1)
 
         # Extract title
-        # Try multiple methods to get title text
+        # PayPay stores the product title in the img alt attribute
         title = None
         try:
-            # Method 1: Try to find title element within listing
-            title_elem = element.locator('[class*="title"], [class*="Title"], h2, h3').first
-            if title_elem:
-                title = title_elem.inner_text(timeout=1000).strip()
+            # Method 1: Get title from image alt attribute (most reliable)
+            img_elem = element.locator('img').first
+            if img_elem:
+                alt_text = img_elem.get_attribute('alt')
+                if alt_text and alt_text.strip():
+                    title = alt_text.strip()
         except:
             pass
 
         if not title:
             try:
-                # Method 2: Get all text content and use first meaningful line
+                # Method 2: Try to find title element within listing
+                title_elem = element.locator('[class*="title"], [class*="Title"], h2, h3').first
+                if title_elem:
+                    title = title_elem.inner_text(timeout=1000).strip()
+            except:
+                pass
+
+        if not title:
+            try:
+                # Method 3: Get all text content and use first meaningful line
                 text = element.inner_text(timeout=1000).strip()
                 lines = [line.strip() for line in text.split('\n') if line.strip()]
                 if lines:
-                    # Assume first line that's not just a price is the title
+                    # Assume first line that's not just a price or button text is the title
+                    skip_phrases = ['いいね', '対象', '円']
                     for line in lines:
-                        if not re.match(r'^[¥￥,\d]+円?$', line):
+                        if not re.match(r'^[¥￥,\d]+円?$', line) and not any(skip in line for skip in skip_phrases):
                             title = line
                             break
             except:
@@ -653,20 +683,30 @@ def insert_market_listings(products_data: List[Dict], dry_run: bool = False) -> 
             )
 
             if dry_run:
-                # In dry run, just print the listing
+                # In dry run, print the listing with formatted output
+                attrs = listing.attributes
                 print(f"\n{'='*70}")
                 print(f"Listing ID: {listing.id}")
                 print(f"Niche Type: {listing.niche_type}")
-                print(f"Title: {listing.title}")
-                print(f"Price: ¥{listing.price_jpy:,}")
-                print(f"URL: {listing.url}")
+
+                # Show TCG-specific info if applicable
+                if listing.niche_type == "TCG" and attrs.get("game"):
+                    game_display = get_tcg_game_display_name(attrs.get("game"))
+                    print(f"TCG Game:   {game_display} ({attrs.get('game')})")
+                    if attrs.get("set_code"):
+                        print(f"Set Code:   {attrs.get('set_code')}")
+                    if attrs.get("card_number"):
+                        print(f"Card #:     {attrs.get('card_number')}")
+                    if attrs.get("rarity"):
+                        print(f"Rarity:     {attrs.get('rarity')}")
+                    if attrs.get("language"):
+                        print(f"Language:   {attrs.get('language')}")
+
+                print(f"Title:      {listing.title}")
+                print(f"Price:      ¥{listing.price_jpy:,}")
+                print(f"URL:        {listing.url}")
                 if listing.image_urls and len(listing.image_urls) > 0:
-                    print(f"Images: {len(listing.image_urls)} image(s)")
-                    for idx, img_url in enumerate(listing.image_urls[:3], 1):  # Show first 3
-                        print(f"  [{idx}] {img_url}")
-                print(f"Attributes: {listing.attributes}")
-                print(f"Listed At: {listing.listed_at}")
-                print(f"Is Processed: {listing.is_processed}")
+                    print(f"Images:     {len(listing.image_urls)} image(s)")
                 print(f"{'='*70}")
                 inserted_count += 1
             else:

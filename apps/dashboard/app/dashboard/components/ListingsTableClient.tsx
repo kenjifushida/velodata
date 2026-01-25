@@ -9,11 +9,12 @@ import { useState } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import type { MarketListing } from '@/lib/models/market-listing';
-import { exportToEBayCSV } from '@/app/actions/export';
+import { exportToEBayCSV, exportToShopifyCSV } from '@/app/actions/export';
 import { deleteMarketListings } from '@/app/actions/delete-listings';
 import { ConfirmDialog } from './ConfirmDialog';
-import { MarkupDialog } from './MarkupDialog';
-import { NICHE_DISPLAY_NAMES, CONDITION_COLORS } from '@/lib/constants';
+import { ExportModal, type ExportPlatform } from './ExportModal';
+import { NICHE_DISPLAY_NAMES, CONDITION_COLORS, TCG_GAME_NAMES, GRADING_COMPANY_NAMES } from '@/lib/constants';
+import type { TCGGame, GradingCompany } from '@/lib/models/market-listing';
 
 interface ListingsTableClientProps {
   listings: MarketListing[];
@@ -25,7 +26,7 @@ export function ListingsTableClient({ listings }: ListingsTableClientProps) {
   const [isExporting, setIsExporting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [showMarkupDialog, setShowMarkupDialog] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -52,16 +53,18 @@ export function ListingsTableClient({ listings }: ListingsTableClientProps) {
       setErrorMessage('Please select at least one listing to export');
       return;
     }
-    setShowMarkupDialog(true);
+    setShowExportModal(true);
   };
 
-  const handleExportConfirm = async (margin: number) => {
-    setShowMarkupDialog(false);
+  const handleExportConfirm = async (platform: ExportPlatform, margin: number) => {
+    setShowExportModal(false);
     setIsExporting(true);
     setErrorMessage(null);
 
     try {
-      const result = await exportToEBayCSV(Array.from(selectedIds), margin);
+      const result = platform === 'ebay'
+        ? await exportToEBayCSV(Array.from(selectedIds), margin)
+        : await exportToShopifyCSV(Array.from(selectedIds), margin);
 
       if (result.success && result.csv && result.filename) {
         // Create download link
@@ -74,9 +77,10 @@ export function ListingsTableClient({ listings }: ListingsTableClientProps) {
         URL.revokeObjectURL(url);
 
         // Clear selection and show success
+        const platformName = platform === 'ebay' ? 'eBay' : 'Shopify';
         setSelectedIds(new Set());
         setSuccessMessage(
-          `Successfully exported ${selectedIds.size} listings with ${margin}% net margin`
+          `Successfully exported ${selectedIds.size} listings to ${platformName} with ${margin}% net margin`
         );
         setTimeout(() => setSuccessMessage(null), 3000);
       } else {
@@ -91,7 +95,7 @@ export function ListingsTableClient({ listings }: ListingsTableClientProps) {
   };
 
   const handleExportCancel = () => {
-    setShowMarkupDialog(false);
+    setShowExportModal(false);
   };
 
   const handleDeleteClick = () => {
@@ -333,7 +337,7 @@ export function ListingsTableClient({ listings }: ListingsTableClientProps) {
                       d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                     />
                   </svg>
-                  Export to eBay CSV
+                  Export
                 </>
               )}
             </button>
@@ -355,9 +359,9 @@ export function ListingsTableClient({ listings }: ListingsTableClientProps) {
         onCancel={handleDeleteCancel}
       />
 
-      {/* Markup Configuration Dialog */}
-      <MarkupDialog
-        isOpen={showMarkupDialog}
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={showExportModal}
         itemCount={selectedIds.size}
         averagePrice={getAveragePrice()}
         averageShippingCost={getAverageShippingCost()}
@@ -463,9 +467,28 @@ export function ListingsTableClient({ listings }: ListingsTableClientProps) {
                   </div>
                 </td>
                 <td className="px-4 py-4">
-                  <span className="text-sm text-zinc-700 dark:text-zinc-300">
-                    {NICHE_DISPLAY_NAMES[listing.niche_type] || listing.niche_type}
-                  </span>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm text-zinc-700 dark:text-zinc-300">
+                      {NICHE_DISPLAY_NAMES[listing.niche_type] || listing.niche_type}
+                    </span>
+                    {/* Show TCG game for TCG niche */}
+                    {listing.niche_type === 'TCG' && listing.attributes.tcg_game && (
+                      <span className="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
+                        {TCG_GAME_NAMES[listing.attributes.tcg_game as TCGGame] || listing.attributes.tcg_game}
+                      </span>
+                    )}
+                    {/* Show grading info for graded cards */}
+                    {listing.attributes.is_graded && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                        {listing.attributes.grading_company && (
+                          <span>{GRADING_COMPANY_NAMES[listing.attributes.grading_company as GradingCompany] || listing.attributes.grading_company}</span>
+                        )}
+                        {listing.attributes.grade && (
+                          <span className="font-bold">{listing.attributes.grade}</span>
+                        )}
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-4">
                   <span className="text-sm text-zinc-700 dark:text-zinc-300">

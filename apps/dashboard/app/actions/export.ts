@@ -1,13 +1,20 @@
 /**
- * Server Actions for eBay CSV Export
+ * Server Actions for CSV Export
  *
- * Handles exporting market listings to eBay File Exchange CSV format.
- * Reference: https://www.ebay.com/help/selling/listings/creating-managing-listings/add-edit-items-file-exchange
+ * Handles exporting market listings to eBay and Shopify CSV formats.
+ * - eBay: File Exchange CSV format
+ * - Shopify: Product CSV import format
+ *
+ * References:
+ * - eBay: https://www.ebay.com/help/selling/listings/creating-managing-listings/add-edit-items-file-exchange
+ * - Shopify: https://help.shopify.com/en/manual/products/import-export/using-csv
  */
 'use server';
 
 import { getDatabase } from '@/lib/mongodb';
 import type { MarketListing } from '@/lib/models/market-listing';
+import { TCG_GAME_NAMES, GRADING_COMPANY_NAMES, NICHE_DISPLAY_NAMES } from '@/lib/constants';
+import type { TCGGame, GradingCompany, NicheType } from '@/lib/models/market-listing';
 
 /**
  * eBay File Exchange CSV fields
@@ -807,6 +814,533 @@ export async function exportToEBayCSV(
     };
   } catch (error) {
     console.error('Error exporting listings to eBay CSV:', error);
+    return {
+      success: false,
+      error: 'Failed to export listings',
+    };
+  }
+}
+
+// ============================================================================
+// SHOPIFY EXPORT
+// ============================================================================
+
+/**
+ * Shopify Product CSV fields
+ * Based on https://help.shopify.com/en/manual/products/import-export/using-csv
+ */
+interface ShopifyCSVRow {
+  // Required fields
+  Handle: string;
+  Title: string;
+
+  // Product details
+  'Body (HTML)': string;
+  Vendor: string;
+  'Product Category': string;
+  Type: string;
+  Tags: string;
+  Published: string;
+
+  // Variant details
+  'Option1 Name': string;
+  'Option1 Value': string;
+  'Variant SKU': string;
+  'Variant Grams': string;
+  'Variant Inventory Tracker': string;
+  'Variant Inventory Qty': string;
+  'Variant Inventory Policy': string;
+  'Variant Fulfillment Service': string;
+  'Variant Price': string;
+  'Variant Compare At Price': string;
+  'Variant Requires Shipping': string;
+  'Variant Taxable': string;
+  'Variant Barcode': string;
+  'Variant Weight Unit': string;
+
+  // Images
+  'Image Src': string;
+  'Image Position': string;
+  'Image Alt Text': string;
+
+  // SEO
+  'SEO Title': string;
+  'SEO Description': string;
+
+  // Status
+  Status: string;
+
+  // Collection (for organizing products into Shopify collections)
+  Collection: string;
+
+  // Cost tracking (for inventory management)
+  'Cost per item': string;
+}
+
+/**
+ * Shopify product categories for TCG
+ */
+const SHOPIFY_TCG_CATEGORIES: Record<string, string> = {
+  POKEMON: 'Collectible Trading Cards',
+  YUGIOH: 'Collectible Trading Cards',
+  ONE_PIECE: 'Collectible Trading Cards',
+  MAGIC: 'Collectible Trading Cards',
+  WEISS_SCHWARZ: 'Collectible Trading Cards',
+  DRAGON_BALL: 'Collectible Trading Cards',
+  DIGIMON: 'Collectible Trading Cards',
+  VANGUARD: 'Collectible Trading Cards',
+  UNION_ARENA: 'Collectible Trading Cards',
+  DUEL_MASTERS: 'Collectible Trading Cards',
+};
+
+/**
+ * Shopify Collection mapping for TCG games
+ * Maps internal TCG game codes to Shopify collection names
+ */
+const SHOPIFY_TCG_COLLECTIONS: Record<string, string> = {
+  POKEMON: 'Pokemon Card Game',
+  YUGIOH: 'Yu-Gi-Oh!',
+  ONE_PIECE: 'One Piece Card Game',
+  MAGIC: 'Magic: The Gathering',
+  UNION_ARENA: 'Union Arena',
+  // Games without dedicated collections yet
+  WEISS_SCHWARZ: '',
+  DRAGON_BALL: '',
+  DIGIMON: '',
+  VANGUARD: '',
+  DUEL_MASTERS: '',
+  HOLOLIVE: 'hololive Official Card Game',
+};
+
+/**
+ * Shopify product categories by niche
+ */
+const SHOPIFY_NICHE_CATEGORIES: Record<string, string> = {
+  TCG: 'Collectible Trading Cards',
+  WATCH: 'Apparel & Accessories > Jewelry > Watches',
+  CAMERA_GEAR: 'Cameras & Optics > Camera & Optic Accessories',
+  LUXURY_ITEM: 'Apparel & Accessories > Handbags, Wallets & Cases',
+  VIDEOGAME: 'Electronics > Video Game Consoles',
+  STATIONARY: 'Office Supplies > Writing Instruments',
+  COLLECTION_FIGURES: 'Toys & Games > Toys > Action Figures',
+};
+
+/**
+ * Default weight in grams by niche (cards are ~100g with sleeve/toploader)
+ */
+const WEIGHT_BY_NICHE: Record<string, number> = {
+  TCG: 100,
+  WATCH: 300,
+  CAMERA_GEAR: 500,
+  LUXURY_ITEM: 400,
+  VIDEOGAME: 800,
+  STATIONARY: 100,
+  COLLECTION_FIGURES: 500,
+};
+
+/**
+ * Generate URL-safe handle from title
+ */
+function generateHandle(listing: MarketListing): string {
+  const baseHandle = listing.title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .substring(0, 50);
+
+  // Add unique suffix from listing ID
+  const idSuffix = listing._id.substring(listing._id.length - 6);
+  return `${baseHandle}-${idSuffix}`;
+}
+
+/**
+ * Generate Shopify-compliant product description with TCG focus
+ */
+function generateShopifyDescription(listing: MarketListing): string {
+  const { attributes, niche_type } = listing;
+
+  const nicheLabel = NICHE_DISPLAY_NAMES[niche_type as NicheType] || niche_type;
+
+  let description = `<div style="font-family: system-ui, -apple-system, sans-serif;">`;
+  description += `<h2>${listing.title}</h2>`;
+  description += `<p><strong>Authentic ${nicheLabel} from Japan</strong></p>`;
+
+  // TCG-specific details
+  if (niche_type === 'TCG') {
+    description += `<h3>Card Details</h3><ul>`;
+
+    if (attributes.tcg_game) {
+      const gameName = TCG_GAME_NAMES[attributes.tcg_game as TCGGame] || attributes.tcg_game;
+      description += `<li><strong>Game:</strong> ${gameName}</li>`;
+    }
+
+    if (attributes.set_code) {
+      description += `<li><strong>Set:</strong> ${attributes.set_code}</li>`;
+    }
+
+    if (attributes.card_number) {
+      description += `<li><strong>Card Number:</strong> ${attributes.card_number}</li>`;
+    }
+
+    if (attributes.rarity) {
+      description += `<li><strong>Rarity:</strong> ${attributes.rarity}</li>`;
+    }
+
+    if (attributes.language) {
+      description += `<li><strong>Language:</strong> ${attributes.language}</li>`;
+    }
+
+    // Grading information
+    if (attributes.is_graded) {
+      description += `<li><strong>Graded:</strong> Yes</li>`;
+      if (attributes.grading_company) {
+        const companyName = GRADING_COMPANY_NAMES[attributes.grading_company as GradingCompany] || attributes.grading_company;
+        description += `<li><strong>Grading Company:</strong> ${companyName}</li>`;
+      }
+      if (attributes.grade) {
+        description += `<li><strong>Grade:</strong> ${attributes.grade}${attributes.grade_qualifier ? ` (${attributes.grade_qualifier})` : ''}</li>`;
+      }
+      if (attributes.cert_number) {
+        description += `<li><strong>Cert Number:</strong> ${attributes.cert_number}</li>`;
+      }
+    }
+
+    description += `</ul>`;
+  }
+
+  // Condition
+  if (attributes.condition_rank) {
+    description += `<h3>Condition</h3>`;
+    description += `<p>${mapConditionToText(attributes.condition_rank)}</p>`;
+  }
+
+  // Shipping info
+  description += `<h3>Shipping</h3>`;
+  description += `<p>Ships from Japan with tracking. Items are carefully packaged with protective materials.</p>`;
+
+  description += `<p><em>All items are sold as-is. Please review photos carefully before purchase.</em></p>`;
+  description += `</div>`;
+
+  return description;
+}
+
+/**
+ * Generate tags for Shopify product
+ *
+ * @param listing - Market listing
+ */
+function generateShopifyTags(listing: MarketListing): string {
+  const tags: string[] = [];
+  const { attributes, niche_type } = listing;
+
+  // Niche tag
+  tags.push(niche_type);
+
+  // TCG-specific tags
+  if (niche_type === 'TCG') {
+    if (attributes.tcg_game) {
+      const gameName = TCG_GAME_NAMES[attributes.tcg_game as TCGGame] || attributes.tcg_game;
+      tags.push(gameName.replace(/[^a-zA-Z0-9\s]/g, ''));
+    }
+
+    if (attributes.is_graded) {
+      tags.push('Graded');
+      if (attributes.grading_company) {
+        tags.push(attributes.grading_company);
+      }
+      if (attributes.grade) {
+        tags.push(`Grade ${attributes.grade}`);
+      }
+    } else {
+      tags.push('Raw');
+    }
+
+    if (attributes.set_code) {
+      tags.push(attributes.set_code);
+    }
+
+    if (attributes.rarity) {
+      tags.push(attributes.rarity);
+    }
+
+    if (attributes.language) {
+      tags.push(attributes.language);
+    }
+  }
+
+  // Brand tag
+  if (attributes.brand) {
+    tags.push(attributes.brand);
+  }
+
+  // Condition tag
+  if (attributes.condition_rank) {
+    tags.push(`Condition-${attributes.condition_rank}`);
+  }
+
+  // Japan origin tag
+  tags.push('Japan', 'Japanese Import');
+
+  return tags.join(', ');
+}
+
+/**
+ * Calculate Shopify sale price with desired margin
+ *
+ * For Shopify, shipping is separate from product price.
+ * The product price covers: item cost + margin + payment fees
+ * Net margin is calculated on the item sale only.
+ */
+function calculateShopifyPrice(
+  costJPY: number,
+  desiredMarginPercent: number
+): number {
+  const SHOPIFY_PAYMENT_FEE_PERCENT = 0.029;
+  const SHOPIFY_PAYMENT_FEE_FIXED = 0.30;
+
+  const costUSD = costJPY * JPY_TO_USD_RATE;
+  const desiredProfit = costUSD * (desiredMarginPercent / 100);
+
+  // Product price only - shipping is charged separately
+  const salePrice =
+    (costUSD + desiredProfit + SHOPIFY_PAYMENT_FEE_FIXED) /
+    (1 - SHOPIFY_PAYMENT_FEE_PERCENT);
+
+  return salePrice;
+}
+
+/**
+ * Convert market listing to Shopify CSV row
+ *
+ * @param listing - Market listing to convert
+ * @param netMarginPercent - Desired net profit margin (default 25%)
+ */
+function listingToShopifyRow(
+  listing: MarketListing,
+  netMarginPercent: number = 25
+): ShopifyCSVRow {
+  const { attributes, niche_type } = listing;
+
+  // Calculate sale price (shipping is separate)
+  const priceUSD = calculateShopifyPrice(listing.price_jpy, netMarginPercent);
+
+  // Get product category
+  let category: string;
+  if (niche_type === 'TCG' && attributes.tcg_game) {
+    category = SHOPIFY_TCG_CATEGORIES[attributes.tcg_game] || SHOPIFY_NICHE_CATEGORIES.TCG;
+  } else {
+    category = SHOPIFY_NICHE_CATEGORIES[niche_type] || 'Miscellaneous';
+  }
+
+  // Get weight
+  const weightGrams = WEIGHT_BY_NICHE[niche_type] || 100;
+
+  // Generate SKU
+  const sku = `VD-${listing._id.substring(0, 12).toUpperCase()}`;
+
+  // Get vendor/brand
+  const vendor = attributes.brand || 'VeloData Japan';
+
+  // Get product type
+  let productType: string;
+  if (niche_type === 'TCG') {
+    const gameName = attributes.tcg_game
+      ? TCG_GAME_NAMES[attributes.tcg_game as TCGGame] || attributes.tcg_game
+      : 'Trading Card';
+    productType = attributes.is_graded ? `Graded ${gameName} Card` : `${gameName} Card`;
+  } else {
+    productType = NICHE_DISPLAY_NAMES[niche_type as NicheType] || niche_type;
+  }
+
+  // Get collection for TCG items
+  let collection = '';
+  if (niche_type === 'TCG' && attributes.tcg_game) {
+    collection = SHOPIFY_TCG_COLLECTIONS[attributes.tcg_game] || '';
+  }
+
+  const row: ShopifyCSVRow = {
+    Handle: generateHandle(listing),
+    Title: listing.title.substring(0, 255),
+    'Body (HTML)': generateShopifyDescription(listing),
+    Vendor: vendor,
+    'Product Category': category,
+    Type: productType,
+    Tags: generateShopifyTags(listing),
+    Published: 'true',
+
+    'Option1 Name': 'Title',
+    'Option1 Value': 'Default Title',
+    'Variant SKU': sku,
+    'Variant Grams': String(weightGrams),
+    'Variant Inventory Tracker': 'shopify',
+    'Variant Inventory Qty': '1',
+    'Variant Inventory Policy': 'deny',
+    'Variant Fulfillment Service': 'manual',
+    'Variant Price': priceUSD.toFixed(2),
+    'Variant Compare At Price': '',
+    'Variant Requires Shipping': 'true',
+    'Variant Taxable': 'true',
+    'Variant Barcode': '',
+    'Variant Weight Unit': 'g',
+
+    'Image Src': listing.image_urls[0] || '',
+    'Image Position': '1',
+    'Image Alt Text': listing.title.substring(0, 125),
+
+    'SEO Title': listing.title.substring(0, 70),
+    'SEO Description': `${listing.title.substring(0, 150)} - Authentic from Japan`,
+
+    Status: 'active',
+
+    // Collection for organizing products (TCG games mapped to Shopify collections)
+    Collection: collection,
+
+    // Cost per item for inventory tracking (item cost in USD)
+    'Cost per item': (listing.price_jpy * JPY_TO_USD_RATE).toFixed(2),
+  };
+
+  return row;
+}
+
+/**
+ * Export selected listings to Shopify CSV format
+ *
+ * @param listingIds - Array of listing IDs to export
+ * @param netMarginPercent - Desired net profit margin (default 25%)
+ */
+export async function exportToShopifyCSV(
+  listingIds: string[],
+  netMarginPercent: number = 25
+): Promise<{ success: boolean; csv?: string; filename?: string; error?: string }> {
+  try {
+    if (!listingIds || listingIds.length === 0) {
+      return {
+        success: false,
+        error: 'No listings selected for export',
+      };
+    }
+
+    const db = await getDatabase();
+    const collection = db.collection<MarketListing>('market_listings');
+
+    // Fetch selected listings
+    const listings = await collection
+      .find({ _id: { $in: listingIds } })
+      .toArray();
+
+    if (listings.length === 0) {
+      return {
+        success: false,
+        error: 'No listings found with the provided IDs',
+      };
+    }
+
+    // Convert to Shopify CSV rows
+    const csvRows = listings.map((listing) => listingToShopifyRow(listing, netMarginPercent));
+
+    // For listings with multiple images, we need additional rows
+    const allRows: ShopifyCSVRow[] = [];
+
+    for (let i = 0; i < listings.length; i++) {
+      const listing = listings[i];
+      const baseRow = csvRows[i];
+
+      // Add the main row
+      allRows.push(baseRow);
+
+      // Add additional image rows (Shopify supports up to 250 images)
+      // Skip the first image as it's already in the main row
+      for (let imgIndex = 1; imgIndex < Math.min(listing.image_urls.length, 10); imgIndex++) {
+        const imageRow: ShopifyCSVRow = {
+          Handle: baseRow.Handle,
+          Title: '',
+          'Body (HTML)': '',
+          Vendor: '',
+          'Product Category': '',
+          Type: '',
+          Tags: '',
+          Published: '',
+          'Option1 Name': '',
+          'Option1 Value': '',
+          'Variant SKU': '',
+          'Variant Grams': '',
+          'Variant Inventory Tracker': '',
+          'Variant Inventory Qty': '',
+          'Variant Inventory Policy': '',
+          'Variant Fulfillment Service': '',
+          'Variant Price': '',
+          'Variant Compare At Price': '',
+          'Variant Requires Shipping': '',
+          'Variant Taxable': '',
+          'Variant Barcode': '',
+          'Variant Weight Unit': '',
+          'Image Src': listing.image_urls[imgIndex],
+          'Image Position': String(imgIndex + 1),
+          'Image Alt Text': `${listing.title.substring(0, 100)} - Image ${imgIndex + 1}`,
+          'SEO Title': '',
+          'SEO Description': '',
+          Status: '',
+          Collection: '',
+          'Cost per item': '',
+        };
+        allRows.push(imageRow);
+      }
+    }
+
+    // Define CSV headers
+    const headers: (keyof ShopifyCSVRow)[] = [
+      'Handle',
+      'Title',
+      'Body (HTML)',
+      'Vendor',
+      'Product Category',
+      'Type',
+      'Tags',
+      'Published',
+      'Option1 Name',
+      'Option1 Value',
+      'Variant SKU',
+      'Variant Grams',
+      'Variant Inventory Tracker',
+      'Variant Inventory Qty',
+      'Variant Inventory Policy',
+      'Variant Fulfillment Service',
+      'Variant Price',
+      'Variant Compare At Price',
+      'Variant Requires Shipping',
+      'Variant Taxable',
+      'Variant Barcode',
+      'Variant Weight Unit',
+      'Image Src',
+      'Image Position',
+      'Image Alt Text',
+      'SEO Title',
+      'SEO Description',
+      'Status',
+      'Collection',
+      'Cost per item',
+    ];
+
+    // Generate CSV content
+    const csvLines = [
+      headers.join(','),
+      ...allRows.map((row) => objectToCSVLine(row, headers)),
+    ];
+
+    const csv = csvLines.join('\n');
+
+    // Generate filename
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
+    const filename = `shopify-products-${timestamp}.csv`;
+
+    return {
+      success: true,
+      csv,
+      filename,
+    };
+  } catch (error) {
+    console.error('Error exporting listings to Shopify CSV:', error);
     return {
       success: false,
       error: 'Failed to export listings',

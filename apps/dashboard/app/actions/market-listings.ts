@@ -12,6 +12,8 @@ import type {
   MarketListingsResponse,
   NicheType,
   SourceId,
+  TCGGame,
+  GradingCompany,
 } from '@/lib/models/market-listing';
 
 /**
@@ -33,6 +35,10 @@ export async function getMarketListings(
       is_processed,
       page = 1,
       limit = 20,
+      // TCG-specific filters
+      tcg_game,
+      is_graded,
+      grading_company,
     } = filters;
 
     // Build MongoDB query
@@ -66,6 +72,19 @@ export async function getMarketListings(
 
     if (is_processed !== undefined) {
       query.is_processed = is_processed;
+    }
+
+    // TCG-specific filters
+    if (tcg_game) {
+      query['attributes.tcg_game'] = tcg_game;
+    }
+
+    if (is_graded !== undefined) {
+      query['attributes.is_graded'] = is_graded;
+    }
+
+    if (grading_company) {
+      query['attributes.grading_company'] = grading_company;
     }
 
     // Calculate pagination
@@ -104,6 +123,8 @@ export async function getFilterOptions(): Promise<{
   nicheTypes: NicheType[];
   sources: SourceId[];
   priceRange: { min_price: number; max_price: number };
+  tcgGames: TCGGame[];
+  gradingCompanies: GradingCompany[];
 }> {
   try {
     const db = await getDatabase();
@@ -114,6 +135,18 @@ export async function getFilterOptions(): Promise<{
 
     // Get unique sources
     const sources = await collection.distinct('source.source_id') as SourceId[];
+
+    // Get unique TCG games (only from TCG listings)
+    const tcgGames = await collection.distinct('attributes.tcg_game', {
+      niche_type: 'TCG',
+      'attributes.tcg_game': { $exists: true, $ne: null }
+    }) as TCGGame[];
+
+    // Get unique grading companies (from graded cards)
+    const gradingCompanies = await collection.distinct('attributes.grading_company', {
+      'attributes.is_graded': true,
+      'attributes.grading_company': { $exists: true, $ne: null }
+    }) as GradingCompany[];
 
     // Get price range
     const priceStats = await collection
@@ -136,6 +169,8 @@ export async function getFilterOptions(): Promise<{
       nicheTypes,
       sources,
       priceRange,
+      tcgGames,
+      gradingCompanies,
     };
   } catch (error) {
     console.error('Error fetching filter options:', error);
@@ -143,6 +178,8 @@ export async function getFilterOptions(): Promise<{
       nicheTypes: [],
       sources: [],
       priceRange: { min_price: 0, max_price: 100000 },
+      tcgGames: [],
+      gradingCompanies: [],
     };
   }
 }

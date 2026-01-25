@@ -8,8 +8,8 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { getFilterOptions } from '@/app/actions/market-listings';
-import type { NicheType, SourceId } from '@/lib/models/market-listing';
-import { NICHE_DISPLAY_NAMES, SOURCE_DISPLAY_NAMES } from '@/lib/constants';
+import type { NicheType, SourceId, TCGGame, GradingCompany } from '@/lib/models/market-listing';
+import { NICHE_DISPLAY_NAMES, SOURCE_DISPLAY_NAMES, TCG_GAME_NAMES, GRADING_COMPANY_NAMES } from '@/lib/constants';
 
 export function FilterPanel() {
   const router = useRouter();
@@ -21,21 +21,32 @@ export function FilterPanel() {
   const [minPrice, setMinPrice] = useState(searchParams.get('min_price') || '');
   const [maxPrice, setMaxPrice] = useState(searchParams.get('max_price') || '');
   const [isProcessed, setIsProcessed] = useState(searchParams.get('is_processed') || '');
+  // TCG-specific filters
+  const [tcgGame, setTcgGame] = useState(searchParams.get('tcg_game') || '');
+  const [isGraded, setIsGraded] = useState(searchParams.get('is_graded') || '');
+  const [gradingCompany, setGradingCompany] = useState(searchParams.get('grading_company') || '');
 
   const [filterOptions, setFilterOptions] = useState<{
     nicheTypes: NicheType[];
     sources: SourceId[];
     priceRange: { min_price: number; max_price: number };
+    tcgGames: TCGGame[];
+    gradingCompanies: GradingCompany[];
   }>({
     nicheTypes: [],
     sources: [],
     priceRange: { min_price: 0, max_price: 100000 },
+    tcgGames: [],
+    gradingCompanies: [],
   });
 
   // Load filter options on mount
   useEffect(() => {
     getFilterOptions().then(setFilterOptions);
   }, []);
+
+  // Show TCG-specific filters when TCG niche is selected
+  const showTcgFilters = nicheType === 'TCG';
 
   const handleApplyFilters = () => {
     const params = new URLSearchParams();
@@ -46,6 +57,10 @@ export function FilterPanel() {
     if (minPrice) params.set('min_price', minPrice);
     if (maxPrice) params.set('max_price', maxPrice);
     if (isProcessed) params.set('is_processed', isProcessed);
+    // TCG-specific filters
+    if (tcgGame) params.set('tcg_game', tcgGame);
+    if (isGraded) params.set('is_graded', isGraded);
+    if (gradingCompany) params.set('grading_company', gradingCompany);
 
     router.push(`/dashboard?${params.toString()}`);
   };
@@ -57,7 +72,21 @@ export function FilterPanel() {
     setMinPrice('');
     setMaxPrice('');
     setIsProcessed('');
+    // TCG-specific filters
+    setTcgGame('');
+    setIsGraded('');
+    setGradingCompany('');
     router.push('/dashboard');
+  };
+
+  // Clear TCG filters when switching away from TCG niche
+  const handleNicheChange = (value: string) => {
+    setNicheType(value);
+    if (value !== 'TCG') {
+      setTcgGame('');
+      setIsGraded('');
+      setGradingCompany('');
+    }
   };
 
 
@@ -94,7 +123,7 @@ export function FilterPanel() {
           <select
             id="niche-type"
             value={nicheType}
-            onChange={(e) => setNicheType(e.target.value)}
+            onChange={(e) => handleNicheChange(e.target.value)}
             className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-500"
           >
             <option value="">All Niches</option>
@@ -185,6 +214,82 @@ export function FilterPanel() {
           </select>
         </div>
       </div>
+
+      {/* TCG-Specific Filters - shown when TCG niche is selected */}
+      {showTcgFilters && (
+        <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-900/20">
+          <h3 className="mb-3 text-sm font-semibold text-blue-900 dark:text-blue-100">
+            TCG Filters
+          </h3>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            {/* TCG Game */}
+            <div>
+              <label
+                htmlFor="tcg-game"
+                className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+              >
+                Card Game
+              </label>
+              <select
+                id="tcg-game"
+                value={tcgGame}
+                onChange={(e) => setTcgGame(e.target.value)}
+                className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-500"
+              >
+                <option value="">All Games</option>
+                {filterOptions.tcgGames.map((game) => (
+                  <option key={game} value={game}>
+                    {TCG_GAME_NAMES[game] || game}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Graded Filter */}
+            <div>
+              <label
+                htmlFor="is-graded"
+                className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+              >
+                Grading
+              </label>
+              <select
+                id="is-graded"
+                value={isGraded}
+                onChange={(e) => setIsGraded(e.target.value)}
+                className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-500"
+              >
+                <option value="">All Cards</option>
+                <option value="true">Graded Only</option>
+                <option value="false">Raw Only</option>
+              </select>
+            </div>
+
+            {/* Grading Company */}
+            <div>
+              <label
+                htmlFor="grading-company"
+                className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+              >
+                Grading Company
+              </label>
+              <select
+                id="grading-company"
+                value={gradingCompany}
+                onChange={(e) => setGradingCompany(e.target.value)}
+                className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-500"
+              >
+                <option value="">All Companies</option>
+                {filterOptions.gradingCompanies.map((company) => (
+                  <option key={company} value={company}>
+                    {GRADING_COMPANY_NAMES[company] || company}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Action Buttons */}
       <div className="flex gap-3">
