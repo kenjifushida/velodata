@@ -87,6 +87,7 @@ from core.tcg_games import (
     extract_tcg_card_info,
     ALL_GAME_CONFIGS,
 )
+from core.llm import translate
 
 # Initialize logger for this service
 logger = get_logger("paypay-scraper")
@@ -108,6 +109,65 @@ NICHE_CATEGORY_IDS: Dict[str, str] = {
     "STATIONARY": "2480",  # Office Supplies
     "COLLECTION_FIGURES": "2485",  # Figures and Collectibles
 }
+
+# ============================================================================
+# TRANSLATION HELPER
+# ============================================================================
+
+def translate_title_safe(title: str, niche_type: str, enable_translation: bool = False) -> Optional[str]:
+    """
+    Safely translate a Japanese product title to English.
+
+    Uses the LLM translation service with fallback to None on failure.
+    Translation is non-blocking - scraping continues even if translation fails.
+
+    Args:
+        title: Japanese product title
+        niche_type: Product niche for context (e.g., "TCG", "WATCH")
+        enable_translation: Whether translation is enabled (default: False)
+
+    Returns:
+        English translation or None if translation fails/disabled
+    """
+    if not enable_translation:
+        return None
+
+    # Skip if title appears to already be in English
+    # (contains mostly ASCII characters)
+    ascii_ratio = sum(1 for c in title if ord(c) < 128) / len(title) if title else 0
+    if ascii_ratio > 0.8:
+        logger.debug(f"Title appears to be English, skipping translation")
+        return title  # Return as-is
+
+    try:
+        # Map niche type to translation context for better accuracy
+        context_map = {
+            "TCG": "trading cards, collectibles",
+            "WATCH": "luxury watches, timepieces",
+            "CAMERA_GEAR": "camera equipment, photography",
+            "LUXURY_ITEM": "designer goods, fashion accessories",
+            "VIDEOGAME": "video games, gaming consoles",
+            "STATIONARY": "writing instruments, office supplies",
+            "COLLECTION_FIGURES": "anime figures, collectibles",
+        }
+        context = context_map.get(niche_type, "product listing")
+
+        translated = translate(title, context=context)
+
+        if translated and translated.strip():
+            logger.debug(
+                f"Translated title",
+                extra={"original": title[:50], "translated": translated[:50]}
+            )
+            return translated.strip()
+        return None
+
+    except Exception as e:
+        logger.warning(
+            f"Translation failed, continuing without translation",
+            extra={"title": title[:50], "error": str(e)}
+        )
+        return None
 
 
 # ============================================================================
@@ -289,7 +349,8 @@ def scrape_paypay_search(
     keyword: str,
     max_pages: int = 5,
     headless: bool = True,
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None,
+    enable_translation: bool = False
 ) -> List[Dict]:
     """
     Scrape PayPay Flea Market search results for product listings.
@@ -300,6 +361,7 @@ def scrape_paypay_search(
         max_pages: Maximum number of pages to scrape
         headless: Whether to run browser in headless mode
         session_id: Scraping session correlation ID
+        enable_translation: Whether to translate titles to English (default: False)
 
     Returns:
         List of scraped product dictionaries
@@ -419,7 +481,8 @@ def scrape_paypay_search(
                                 element,
                                 niche_type,
                                 correlation_id,
-                                page
+                                page,
+                                enable_translation=enable_translation
                             )
                             if product_data:
                                 products.append(product_data)
@@ -480,7 +543,8 @@ def extract_product_from_element(
     element,
     niche_type: str,
     correlation_id: str,
-    page: Page
+    page: Page,
+    enable_translation: bool = False
 ) -> Optional[Dict]:
     """
     Extract product data from a PayPay listing element.
@@ -490,6 +554,7 @@ def extract_product_from_element(
         niche_type: Product niche type
         correlation_id: Session correlation ID
         page: Playwright page instance
+        enable_translation: Whether to translate titles to English
 
     Returns:
         Dictionary with product data or None if extraction fails
@@ -617,6 +682,12 @@ def extract_product_from_element(
         # Store raw title for future NLP processing
         attributes["raw_title"] = title
 
+        # Translate title (Japanese -> English)
+        if enable_translation:
+            title_en = translate_title_safe(title, niche_type, enable_translation)
+            if title_en:
+                attributes["title_en"] = title_en
+
         return {
             "external_id": external_id,
             "niche_type": niche_type,
@@ -702,7 +773,9 @@ def insert_market_listings(products_data: List[Dict], dry_run: bool = False) -> 
                     if attrs.get("language"):
                         print(f"Language:   {attrs.get('language')}")
 
-                print(f"Title:      {listing.title}")
+                print(f"Title (JP): {listing.title}")
+                if attrs.get("title_en"):
+                    print(f"Title (EN): {attrs['title_en']}")
                 print(f"Price:      ¥{listing.price_jpy:,}")
                 print(f"URL:        {listing.url}")
                 if listing.image_urls and len(listing.image_urls) > 0:
@@ -832,6 +905,11 @@ Examples:
         action="store_true",
         help="Validate scraped data without saving to database"
     )
+    parser.add_argument(
+        "--translate",
+        action="store_true",
+        help="Enable Japanese to English title translation using LLM (default: disabled)"
+    )
 
     args = parser.parse_args()
 
@@ -849,6 +927,7 @@ Examples:
             "max_pages": args.max_pages,
             "headless": not args.headed,
             "dry_run": args.dry_run,
+            "translate": args.translate,
         }
     )
 
@@ -862,7 +941,8 @@ Examples:
             keyword=args.keyword,
             max_pages=args.max_pages,
             headless=not args.headed,
-            session_id=session_id
+            session_id=session_id,
+            enable_translation=args.translate
         )
 
         total_scraped = len(products_data)

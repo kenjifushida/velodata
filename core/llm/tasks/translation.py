@@ -117,24 +117,39 @@ class TranslationTask(LLMTask[TranslationResult]):
 
     def get_system_prompt(self) -> str:
         """Get translation-specific system prompt."""
-        return """You are a professional translator specializing in Japanese to English translation for e-commerce product listings.
+        return """Extract and translate ONLY the core product identifiers from Japanese listings. Be very strict - only include what's explicitly in the input.
 
-Rules:
-1. Translate Japanese text to natural English
-2. PRESERVE these elements exactly as they appear:
-   - Product codes (PSA10, sv2a, OP09, BGS 9.5)
-   - Model numbers (EOS R5, Z9, A7R IV)
-   - Brand names (Canon, Rolex, Louis Vuitton)
-   - Technical specifications and numbers
-3. Translate condition terms:
-   - 美品 → Excellent Condition
-   - 良品 → Good Condition
-   - 並品 → Fair Condition
-   - 新品 → New
-   - 未使用 → Unused
-   - 中古 → Used
-4. Keep the translation concise - suitable for product titles
-5. Output ONLY the translation, no explanations"""
+INCLUDE ONLY (if present in input):
+- Brand/Game: Pokemon, One Piece, Yu-Gi-Oh, Rolex, Canon, etc.
+- Product type: Card, Watch, Camera, Figure, Lens
+- Character/product name: Pikachu (ピカチュウ), Charizard (リザードン), Nami (ナミ), Luffy (ルフィ)
+- Model numbers: 116610LN, EOS R5, A7R IV
+- Set codes: sv2a, sv3a, OP09, OP01
+- Card numbers: #165, 247/190, 036
+- Rarity: SR, SAR, UR, RR, AR, SSR
+- Grading: PSA10, BGS 9.5, CGC 9 (ONLY if explicitly stated)
+
+STRICTLY REMOVE (never include):
+- Shipping: 即日発送, 送料無料, 匿名配送, ネコポス
+- Condition: 美品, 良品, 新品, 中古, 傷あり, 状態良好
+- Packaging: スリーブ, ローダー, ケース付き, 箱付き, 箱なし, 開封品
+- Seller notes: 自引き, 開封後, 写真のもの, 付属品完備
+- Stats: シャッター数, 使用回数
+
+CRITICAL RULES:
+1. NEVER add PSA/BGS grades unless explicitly written in input
+2. NEVER add condition words (Excellent, Good, New, Used, Opened, Sealed)
+3. NEVER add packaging info (Box, Case, Sleeve)
+4. Translate character names correctly: リザードン=Charizard, ミュウツー=Mewtwo
+
+EXAMPLES:
+"【即日発送】ポケモンカード ピカチュウex SAR sv3a 247/190 美品" → "Pokemon Card Pikachu ex SAR sv3a #247"
+"ロレックス サブマリーナ 116610LN 美品 箱付き" → "Rolex Submariner 116610LN"
+"Canon EOS R5 ボディ 美品" → "Canon EOS R5 Body"
+"PSA10 ワンピースカード ナミ OP09-036 SR" → "One Piece Card Nami OP09-036 SR PSA10"
+"ワンピース ナミ フィギュア Portrait.Of.Pirates 開封品" → "One Piece Nami Figure Portrait.Of.Pirates"
+
+Output ONLY the clean title."""
 
     def build_prompt(
         self,

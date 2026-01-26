@@ -79,6 +79,7 @@ from core.tcg_games import (
     extract_tcg_card_info,
     ALL_GAME_CONFIGS,
 )
+from core.llm import translate
 
 # Initialize logger for this service
 logger = get_logger("paypay-url-scraper")
@@ -89,6 +90,65 @@ logger = get_logger("paypay-url-scraper")
 # ============================================================================
 
 BASE_URL = "https://paypayfleamarket.yahoo.co.jp"
+
+# ============================================================================
+# TRANSLATION HELPER
+# ============================================================================
+
+def translate_title_safe(title: str, niche_type: str, enable_translation: bool = False) -> Optional[str]:
+    """
+    Safely translate a Japanese product title to English.
+
+    Uses the LLM translation service with fallback to None on failure.
+    Translation is non-blocking - scraping continues even if translation fails.
+
+    Args:
+        title: Japanese product title
+        niche_type: Product niche for context (e.g., "TCG", "WATCH")
+        enable_translation: Whether translation is enabled (default: False)
+
+    Returns:
+        English translation or None if translation fails/disabled
+    """
+    if not enable_translation:
+        return None
+
+    # Skip if title appears to already be in English
+    # (contains mostly ASCII characters)
+    ascii_ratio = sum(1 for c in title if ord(c) < 128) / len(title) if title else 0
+    if ascii_ratio > 0.8:
+        logger.debug(f"Title appears to be English, skipping translation")
+        return title  # Return as-is
+
+    try:
+        # Map niche type to translation context for better accuracy
+        context_map = {
+            "TCG": "trading cards, collectibles",
+            "WATCH": "luxury watches, timepieces",
+            "CAMERA_GEAR": "camera equipment, photography",
+            "LUXURY_ITEM": "designer goods, fashion accessories",
+            "VIDEOGAME": "video games, gaming consoles",
+            "STATIONARY": "writing instruments, office supplies",
+            "COLLECTION_FIGURES": "anime figures, collectibles",
+        }
+        context = context_map.get(niche_type, "product listing")
+
+        translated = translate(title, context=context)
+
+        if translated and translated.strip():
+            logger.debug(
+                f"Translated title",
+                extra={"original": title[:50], "translated": translated[:50]}
+            )
+            return translated.strip()
+        return None
+
+    except Exception as e:
+        logger.warning(
+            f"Translation failed, continuing without translation",
+            extra={"title": title[:50], "error": str(e)}
+        )
+        return None
 
 # Default URL file location (relative to project root)
 DEFAULT_URL_FILE = PROJECT_ROOT / "data" / "paypay_urls.txt"
@@ -650,7 +710,8 @@ def extract_product_data(
     page: Page,
     url: str,
     niche_type: NicheType,
-    correlation_id: str
+    correlation_id: str,
+    enable_translation: bool = False
 ) -> Optional[Dict]:
     """
     Extract product data from a PayPay item page.
@@ -665,6 +726,7 @@ def extract_product_data(
         url: Item URL being scraped
         niche_type: Product niche type for attribute extraction
         correlation_id: Session correlation ID
+        enable_translation: Whether to translate titles to English
 
     Returns:
         Dictionary with product data or None if extraction fails
@@ -845,6 +907,12 @@ def extract_product_data(
         except Exception:
             pass
 
+        # === TRANSLATE TITLE (Japanese -> English) ===
+        if enable_translation:
+            title_en = translate_title_safe(title, niche_type, enable_translation)
+            if title_en:
+                attributes["title_en"] = title_en
+
         return {
             "external_id": external_id,
             "niche_type": niche_type,
@@ -921,7 +989,8 @@ def scrape_urls(
     urls: List[str],
     niche_type: NicheType,
     headless: bool = True,
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None,
+    enable_translation: bool = False
 ) -> List[Dict]:
     """
     Scrape product data from a list of PayPay item URLs.
@@ -931,6 +1000,7 @@ def scrape_urls(
         niche_type: Product niche type
         headless: Whether to run browser in headless mode
         session_id: Scraping session correlation ID
+        enable_translation: Whether to translate titles to English
 
     Returns:
         List of scraped product dictionaries
@@ -975,7 +1045,7 @@ def scrape_urls(
 
                 try:
                     product_data = extract_product_data(
-                        page, url, niche_type, correlation_id
+                        page, url, niche_type, correlation_id, enable_translation
                     )
 
                     if product_data:
@@ -1090,7 +1160,9 @@ def insert_market_listings(products_data: List[Dict], dry_run: bool = False) -> 
                 if attrs.get("brand"):
                     print(f"Brand:      {attrs['brand']}")
 
-                print(f"Title:      {listing.title[:60]}...")
+                print(f"Title (JP): {listing.title[:60]}...")
+                if attrs.get("title_en"):
+                    print(f"Title (EN): {attrs['title_en'][:60]}...")
                 print(f"Price:      ¥{listing.price_jpy:,}")
                 print(f"URL:        {listing.url}")
                 if listing.image_urls:
@@ -1203,6 +1275,11 @@ URL File Format (data/paypay_urls.txt):
         action="store_true",
         help="Validate scraped data without saving to database"
     )
+    parser.add_argument(
+        "--translate",
+        action="store_true",
+        help="Enable Japanese to English title translation using LLM (default: disabled)"
+    )
 
     args = parser.parse_args()
 
@@ -1225,6 +1302,7 @@ URL File Format (data/paypay_urls.txt):
             "url_file": str(url_file),
             "headless": not args.headed,
             "dry_run": args.dry_run,
+            "translate": args.translate,
         }
     )
 
@@ -1249,7 +1327,8 @@ URL File Format (data/paypay_urls.txt):
             urls=urls,
             niche_type=args.niche,
             headless=not args.headed,
-            session_id=session_id
+            session_id=session_id,
+            enable_translation=args.translate
         )
 
         total_scraped = len(products_data)

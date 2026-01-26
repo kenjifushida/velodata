@@ -477,6 +477,18 @@ function calculateSalePriceWithMargin(costUSD: number, desiredMarginPercent: num
 }
 
 /**
+ * Get the best title for export (prefer English translation if available)
+ *
+ * @param listing - Market listing
+ * @returns English title if available, otherwise original Japanese title
+ */
+function getExportTitle(listing: MarketListing): string {
+  const { attributes } = listing;
+  // Use English translation if available, otherwise fall back to original title
+  return attributes.title_en || listing.title;
+}
+
+/**
  * Convert market listing to eBay CSV row
  *
  * @param listing - Market listing to convert
@@ -484,6 +496,9 @@ function calculateSalePriceWithMargin(costUSD: number, desiredMarginPercent: num
  */
 function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25): EBayCSVRow {
   const { attributes } = listing;
+
+  // Get title (prefer English translation)
+  const title = getExportTitle(listing);
 
   // Convert JPY to USD
   const costUSD = listing.price_jpy * JPY_TO_USD_RATE;
@@ -512,7 +527,7 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
     // Required fields
     '*Action(SiteID=US|Country=US|Currency=USD|Version=1193)': 'Add',
     '*Category': ebayCategory,
-    '*Title': listing.title.substring(0, 80), // eBay title limit is 80 characters
+    '*Title': title.substring(0, 80), // eBay title limit is 80 characters (uses English if available)
     '*StartPrice': priceUSD,
     '*Quantity': '1',
     '*Format': 'FixedPrice',
@@ -1122,6 +1137,9 @@ function listingToShopifyRow(
 ): ShopifyCSVRow {
   const { attributes, niche_type } = listing;
 
+  // Get title (prefer English translation)
+  const title = getExportTitle(listing);
+
   // Calculate sale price (shipping is separate)
   const priceUSD = calculateShopifyPrice(listing.price_jpy, netMarginPercent);
 
@@ -1161,7 +1179,7 @@ function listingToShopifyRow(
 
   const row: ShopifyCSVRow = {
     Handle: generateHandle(listing),
-    Title: listing.title.substring(0, 255),
+    Title: title.substring(0, 255), // Uses English title if available
     'Body (HTML)': generateShopifyDescription(listing),
     Vendor: vendor,
     'Product Category': category,
@@ -1186,10 +1204,10 @@ function listingToShopifyRow(
 
     'Image Src': listing.image_urls[0] || '',
     'Image Position': '1',
-    'Image Alt Text': listing.title.substring(0, 125),
+    'Image Alt Text': title.substring(0, 125), // Uses English title if available
 
-    'SEO Title': listing.title.substring(0, 70),
-    'SEO Description': `${listing.title.substring(0, 150)} - Authentic from Japan`,
+    'SEO Title': title.substring(0, 70), // Uses English title if available
+    'SEO Description': `${title.substring(0, 150)} - Authentic from Japan`, // Uses English title if available
 
     Status: 'active',
 

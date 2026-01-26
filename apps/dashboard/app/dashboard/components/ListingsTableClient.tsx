@@ -148,6 +148,11 @@ export function ListingsTableClient({ listings }: ListingsTableClientProps) {
   const allSelected = listings.length > 0 && selectedIds.size === listings.length;
   const someSelected = selectedIds.size > 0 && selectedIds.size < listings.length;
 
+  // Get display title (prefer English translation if available)
+  const getDisplayTitle = (listing: MarketListing): string => {
+    return listing.attributes.title_en || listing.title;
+  };
+
   // Calculate average price for selected items
   const getAveragePrice = () => {
     const selectedListings = listings.filter((l) => selectedIds.has(l._id));
@@ -431,7 +436,7 @@ export function ListingsTableClient({ listings }: ListingsTableClientProps) {
                   {listing.image_urls && listing.image_urls.length > 0 ? (
                     <Image
                       src={listing.image_urls[0]}
-                      alt={listing.title}
+                      alt={getDisplayTitle(listing)}
                       width={60}
                       height={60}
                       className="rounded-lg object-cover"
@@ -457,7 +462,7 @@ export function ListingsTableClient({ listings }: ListingsTableClientProps) {
                 <td className="px-4 py-4">
                   <div className="max-w-xs">
                     <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                      {listing.title}
+                      {getDisplayTitle(listing)}
                     </p>
                     {listing.attributes.brand && (
                       <p className="text-xs text-zinc-600 dark:text-zinc-400">
