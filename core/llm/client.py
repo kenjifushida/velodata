@@ -385,15 +385,19 @@ class OpenRouterClient(LLMClient):
         """
         Generate text using OpenRouter API (OpenAI-compatible chat completions).
 
+        Includes automatic retry with exponential backoff for rate limiting (429).
+
         Args:
             prompt: User prompt
             system_prompt: Optional system instructions
-            **kwargs: Additional options
+            **kwargs: Additional options (max_retries, retry_delay)
 
         Returns:
             LLMResponse with generated content
         """
         start_time = time.time()
+        max_retries = kwargs.get("max_retries", 3)
+        base_delay = kwargs.get("retry_delay", 2.0)
 
         # Build messages array (OpenAI chat format)
         messages = []
@@ -409,94 +413,124 @@ class OpenRouterClient(LLMClient):
             "max_tokens": kwargs.get("max_tokens", self.config.max_tokens),
         }
 
-        try:
-            # Make request
-            req = urllib.request.Request(
-                self._chat_url,
-                data=json.dumps(payload).encode("utf-8"),
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self._api_key}",
-                    "HTTP-Referer": "https://velodata.io",  # Required by OpenRouter
-                    "X-Title": "VeloData",  # Optional, for OpenRouter analytics
-                },
-                method="POST"
-            )
-
-            with urllib.request.urlopen(req, timeout=self.config.timeout) as response:
-                raw_response = json.loads(response.read().decode())
-
-            latency_ms = (time.time() - start_time) * 1000
-
-            # Extract response data (OpenAI format)
-            content = ""
-            if raw_response.get("choices") and len(raw_response["choices"]) > 0:
-                content = raw_response["choices"][0].get("message", {}).get("content", "")
-
-            usage = raw_response.get("usage", {})
-            prompt_tokens = usage.get("prompt_tokens")
-            completion_tokens = usage.get("completion_tokens")
-            total_tokens = usage.get("total_tokens")
-
-            logger.debug(
-                "OpenRouter generation complete",
-                extra={
-                    "model": self.config.model,
-                    "latency_ms": round(latency_ms, 2),
-                    "tokens": total_tokens,
-                }
-            )
-
-            return LLMResponse(
-                content=content.strip(),
-                model=raw_response.get("model", self.config.model),
-                tokens_used=total_tokens,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                latency_ms=latency_ms,
-                raw_response=raw_response
-            )
-
-        except urllib.error.HTTPError as e:
-            error_body = ""
+        last_error = None
+        for attempt in range(max_retries + 1):
             try:
-                error_body = e.read().decode()
-            except:
-                pass
-            logger.error(
-                f"OpenRouter HTTP error: {e.code} - {error_body}",
-                extra={"status_code": e.code}
-            )
-            return LLMResponse(
-                content="",
-                model=self.config.model,
-                latency_ms=(time.time() - start_time) * 1000,
-                raw_response={"error": str(e), "body": error_body}
-            )
-        except urllib.error.URLError as e:
-            logger.error(f"OpenRouter request failed: {e}")
-            return LLMResponse(
-                content="",
-                model=self.config.model,
-                latency_ms=(time.time() - start_time) * 1000,
-                raw_response={"error": str(e)}
-            )
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse OpenRouter response: {e}")
-            return LLMResponse(
-                content="",
-                model=self.config.model,
-                latency_ms=(time.time() - start_time) * 1000,
-                raw_response={"error": str(e)}
-            )
-        except Exception as e:
-            logger.error(f"Unexpected error in OpenRouter client: {e}", exc_info=True)
-            return LLMResponse(
-                content="",
-                model=self.config.model,
-                latency_ms=(time.time() - start_time) * 1000,
-                raw_response={"error": str(e)}
-            )
+                # Make request
+                req = urllib.request.Request(
+                    self._chat_url,
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {self._api_key}",
+                        "HTTP-Referer": "https://velodata.io",  # Required by OpenRouter
+                        "X-Title": "VeloData",  # Optional, for OpenRouter analytics
+                    },
+                    method="POST"
+                )
+
+                with urllib.request.urlopen(req, timeout=self.config.timeout) as response:
+                    raw_response = json.loads(response.read().decode())
+
+                latency_ms = (time.time() - start_time) * 1000
+
+                # Extract response data (OpenAI format)
+                content = ""
+                if raw_response.get("choices") and len(raw_response["choices"]) > 0:
+                    content = raw_response["choices"][0].get("message", {}).get("content", "")
+
+                usage = raw_response.get("usage", {})
+                prompt_tokens = usage.get("prompt_tokens")
+                completion_tokens = usage.get("completion_tokens")
+                total_tokens = usage.get("total_tokens")
+
+                logger.debug(
+                    "OpenRouter generation complete",
+                    extra={
+                        "model": self.config.model,
+                        "latency_ms": round(latency_ms, 2),
+                        "tokens": total_tokens,
+                        "attempts": attempt + 1,
+                    }
+                )
+
+                return LLMResponse(
+                    content=content.strip(),
+                    model=raw_response.get("model", self.config.model),
+                    tokens_used=total_tokens,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    latency_ms=latency_ms,
+                    raw_response=raw_response
+                )
+
+            except urllib.error.HTTPError as e:
+                error_body = ""
+                try:
+                    error_body = e.read().decode()
+                except:
+                    pass
+
+                # Retry on rate limiting (429) or server errors (500, 502, 503)
+                if e.code in (429, 500, 502, 503) and attempt < max_retries:
+                    delay = base_delay * (2 ** attempt)  # Exponential backoff
+                    logger.warning(
+                        f"Server error ({e.code}), retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries + 1})",
+                        extra={"model": self.config.model}
+                    )
+                    time.sleep(delay)
+                    last_error = e
+                    continue
+
+                logger.error(
+                    f"OpenRouter HTTP error: {e.code} - {error_body}",
+                    extra={"status_code": e.code}
+                )
+                return LLMResponse(
+                    content="",
+                    model=self.config.model,
+                    latency_ms=(time.time() - start_time) * 1000,
+                    raw_response={"error": str(e), "body": error_body}
+                )
+
+            except urllib.error.URLError as e:
+                logger.error(f"OpenRouter request failed: {e}")
+                return LLMResponse(
+                    content="",
+                    model=self.config.model,
+                    latency_ms=(time.time() - start_time) * 1000,
+                    raw_response={"error": str(e)}
+                )
+
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse OpenRouter response: {e}")
+                return LLMResponse(
+                    content="",
+                    model=self.config.model,
+                    latency_ms=(time.time() - start_time) * 1000,
+                    raw_response={"error": str(e)}
+                )
+
+            except Exception as e:
+                logger.error(f"Unexpected error in OpenRouter client: {e}", exc_info=True)
+                return LLMResponse(
+                    content="",
+                    model=self.config.model,
+                    latency_ms=(time.time() - start_time) * 1000,
+                    raw_response={"error": str(e)}
+                )
+
+        # All retries exhausted
+        logger.error(
+            f"All {max_retries + 1} attempts failed due to rate limiting",
+            extra={"model": self.config.model}
+        )
+        return LLMResponse(
+            content="",
+            model=self.config.model,
+            latency_ms=(time.time() - start_time) * 1000,
+            raw_response={"error": "Rate limited after max retries", "last_error": str(last_error)}
+        )
 
 
 # ============================================================================

@@ -1165,7 +1165,7 @@ function listingToShopifyRow(
   if (niche_type === 'TCG') {
     const gameName = attributes.tcg_game
       ? TCG_GAME_NAMES[attributes.tcg_game as TCGGame] || attributes.tcg_game
-      : 'Trading Card';
+      : 'Trading';
     productType = attributes.is_graded ? `Graded ${gameName} Card` : `${gameName} Card`;
   } else {
     productType = NICHE_DISPLAY_NAMES[niche_type as NicheType] || niche_type;

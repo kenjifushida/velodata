@@ -265,6 +265,97 @@ def simulate_human_behavior(page: Page, correlation_id: str):
 
 
 # ============================================================================
+# ITEM PAGE IMAGE EXTRACTION
+# ============================================================================
+
+def fetch_item_images(
+    page: Page,
+    item_url: str,
+    correlation_id: str
+) -> List[str]:
+    """
+    Fetch high-quality images from a PayPay item detail page.
+
+    Opens the item page and extracts all product images from the image slider.
+    Uses the same selectors as paypay_scraper_urls.py for consistency.
+
+    Args:
+        page: Playwright page instance (will navigate to item_url)
+        item_url: Full URL to the PayPay item page
+        correlation_id: Session correlation ID for logging
+
+    Returns:
+        List of image URLs (high-quality, from auctions.c.yimg.jp domain)
+    """
+    image_urls = []
+
+    try:
+        # Navigate to item page
+        response = page.goto(item_url, wait_until='networkidle', timeout=30000)
+
+        if not response or not response.ok:
+            logger.warning(
+                "Failed to load item page for images",
+                extra={
+                    "url": item_url[:80],
+                    "status": response.status if response else "No response",
+                    "correlation_id": correlation_id
+                }
+            )
+            return image_urls
+
+        # Brief delay for dynamic content to load
+        time.sleep(random.uniform(1.0, 1.5))
+
+        # Primary selector: .slick-list contains all product images in the slider
+        try:
+            imgs = page.locator('.slick-list img').all()
+            seen_urls = set()
+
+            for img in imgs:
+                src = img.get_attribute('src')
+                if src and not src.startswith('data:') and src not in seen_urls:
+                    # Filter to only product images (auctions.c.yimg.jp domain)
+                    if 'auctions.c.yimg.jp' in src or 'yimg.jp/images' in src:
+                        image_urls.append(src)
+                        seen_urls.add(src)
+
+            if image_urls:
+                logger.debug(
+                    f"Extracted {len(image_urls)} images from item page",
+                    extra={"url": item_url[:50], "correlation_id": correlation_id}
+                )
+        except Exception as e:
+            logger.warning(
+                "Failed to extract images from .slick-list",
+                extra={"error": str(e), "correlation_id": correlation_id}
+            )
+
+        # Fallback: Try other slider/gallery selectors
+        if not image_urls:
+            try:
+                imgs = page.locator('[class*="slider"] img, [class*="gallery"] img').all()
+                seen_urls = set()
+
+                for img in imgs:
+                    src = img.get_attribute('src')
+                    if src and 'auctions.c.yimg.jp' in src and src not in seen_urls:
+                        image_urls.append(src)
+                        seen_urls.add(src)
+            except Exception:
+                pass
+
+    except Exception as e:
+        logger.error(
+            "Error fetching item page images",
+            exc_info=True,
+            extra={"url": item_url[:80], "correlation_id": correlation_id}
+        )
+
+    return image_urls
+
+
+# ============================================================================
 # TCG-SPECIFIC ATTRIBUTE EXTRACTION
 # ============================================================================
 
@@ -350,7 +441,8 @@ def scrape_paypay_search(
     max_pages: int = 5,
     headless: bool = True,
     session_id: Optional[str] = None,
-    enable_translation: bool = False
+    enable_translation: bool = False,
+    fetch_images: bool = False
 ) -> List[Dict]:
     """
     Scrape PayPay Flea Market search results for product listings.
@@ -362,6 +454,7 @@ def scrape_paypay_search(
         headless: Whether to run browser in headless mode
         session_id: Scraping session correlation ID
         enable_translation: Whether to translate titles to English (default: False)
+        fetch_images: Whether to fetch high-quality images from item pages (default: False)
 
     Returns:
         List of scraped product dictionaries
@@ -374,6 +467,7 @@ def scrape_paypay_search(
             "keyword": keyword,
             "max_pages": max_pages,
             "headless": headless,
+            "fetch_images": fetch_images,
             "correlation_id": correlation_id
         }
     )
@@ -475,6 +569,7 @@ def scrape_paypay_search(
                     )
 
                     # Extract product data from each listing
+                    page_products = []
                     for idx, element in enumerate(listing_elements):
                         try:
                             product_data = extract_product_from_element(
@@ -485,7 +580,7 @@ def scrape_paypay_search(
                                 enable_translation=enable_translation
                             )
                             if product_data:
-                                products.append(product_data)
+                                page_products.append(product_data)
                                 logger.debug(
                                     f"Extracted product: {product_data.get('external_id')}",
                                     extra={"correlation_id": correlation_id}
@@ -497,6 +592,34 @@ def scrape_paypay_search(
                                 extra={"correlation_id": correlation_id}
                             )
                             continue
+
+                    # Fetch high-quality images from item pages if enabled
+                    if fetch_images and page_products:
+                        logger.info(
+                            f"Fetching images for {len(page_products)} products",
+                            extra={"page": page_num, "correlation_id": correlation_id}
+                        )
+                        for idx, product in enumerate(page_products):
+                            item_url = product.get("url")
+                            if item_url:
+                                try:
+                                    item_images = fetch_item_images(page, item_url, correlation_id)
+                                    if item_images:
+                                        product["image_urls"] = item_images
+                                        logger.debug(
+                                            f"Fetched {len(item_images)} images for {product.get('external_id')}",
+                                            extra={"correlation_id": correlation_id}
+                                        )
+                                    # Rate limiting between item page fetches
+                                    if idx < len(page_products) - 1:
+                                        time.sleep(random.uniform(1.5, 2.5))
+                                except Exception as e:
+                                    logger.warning(
+                                        f"Failed to fetch images for {product.get('external_id')}",
+                                        extra={"error": str(e), "correlation_id": correlation_id}
+                                    )
+
+                    products.extend(page_products)
 
                     # Check if there's a next page
                     # Look for pagination button or next page link
@@ -867,14 +990,17 @@ Examples:
   # Live run to scrape and save Pokemon cards (headless)
   python paypay_scraper.py --niche TCG --keyword "ポケモンカード sv2a" --max-pages 5
 
+  # Scrape with high-quality images (opens each item page)
+  python paypay_scraper.py --niche TCG --keyword "ポケモンカード" --max-pages 2 --fetch-images --dry-run
+
   # Search for One Piece cards
   python paypay_scraper.py --niche TCG --keyword "ワンピースカード" --max-pages 3
 
   # Search for luxury watches
   python paypay_scraper.py --niche WATCH --keyword "ロレックス" --max-pages 3 --dry-run
 
-  # Search for camera gear
-  python paypay_scraper.py --niche CAMERA_GEAR --keyword "Canon EOS" --max-pages 5
+  # Search for camera gear with high-quality images
+  python paypay_scraper.py --niche CAMERA_GEAR --keyword "Canon EOS" --max-pages 5 --fetch-images
         """
     )
     parser.add_argument(
@@ -910,6 +1036,11 @@ Examples:
         action="store_true",
         help="Enable Japanese to English title translation using LLM (default: disabled)"
     )
+    parser.add_argument(
+        "--fetch-images",
+        action="store_true",
+        help="Fetch high-quality images by opening each item page (slower but better images)"
+    )
 
     args = parser.parse_args()
 
@@ -928,6 +1059,7 @@ Examples:
             "headless": not args.headed,
             "dry_run": args.dry_run,
             "translate": args.translate,
+            "fetch_images": args.fetch_images,
         }
     )
 
@@ -942,7 +1074,8 @@ Examples:
             max_pages=args.max_pages,
             headless=not args.headed,
             session_id=session_id,
-            enable_translation=args.translate
+            enable_translation=args.translate,
+            fetch_images=args.fetch_images
         )
 
         total_scraped = len(products_data)
