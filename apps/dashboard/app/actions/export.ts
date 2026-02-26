@@ -66,12 +66,17 @@ interface EBayCSVRow {
   'C:Megapixels'?: string;  // For digital cameras (15230)
   'C:Optical Zoom'?: string;  // For cameras (15230)
 
-  // Pokemon Card specifics (category-dependent)
-  'C:Card Name'?: string;  // For Pokemon cards (183454)
-  'C:Card Number'?: string;  // For Pokemon cards (183454)
-  'C:Set'?: string;  // For Pokemon cards (183454)
-  'C:Rarity'?: string;  // For Pokemon cards (183454)
-  'C:Language'?: string;  // For Pokemon cards (183454)
+  // TCG Card specifics (category-dependent)
+  'C:Game'?: string;  // Required for TCG categories (183454, 183444, 38292)
+  'C:Card Name'?: string;  // For TCG cards (183454)
+  'C:Card Number'?: string;  // For TCG cards (183454)
+  'C:Set'?: string;  // For TCG cards (183454)
+  'C:Rarity'?: string;  // For TCG cards (183454)
+  'C:Language'?: string;  // For TCG cards (183454)
+  'CD:Professional Grader - (ID: 27501)'?: string;  // Required when ConditionID=2750
+  'CD:Grade - (ID: 27502)'?: string;  // Required when ConditionID=2750
+  'CDA:Certification Number - (ID: 27503)'?: string;  // Optional cert number for graded cards
+  'CD:Card Condition - (ID: 40001)'?: string;  // Required when ConditionID=4000 (ungraded TCG)
 
   // Stationary specifics (category-dependent)
   'C:Ink Color'?: string;  // For pens (61778-61782)
@@ -114,10 +119,10 @@ const EBAY_CATEGORIES: Record<string, string> = {
  * eBay category mapping for TCG games
  */
 const TCG_GAME_CATEGORIES: Record<string, string> = {
-  POKEMON: '183454', // Pokemon Trading Card Game
-  YUGIOH: '183444', // Yu-Gi-Oh! Trading Card Game
-  ONE_PIECE: '183454', // One Piece TCG (use Pokemon category as proxy)
-  MAGIC: '38292', // Magic: The Gathering Trading Card Game
+  POKEMON: '183454', // CCG Individual Cards
+  YUGIOH: '183454', // CCG Individual Cards (same as Pokemon)
+  ONE_PIECE: '183454', // CCG Individual Cards (same as Pokemon)
+  MAGIC: '183454', // CCG Individual Cards (same as Pokemon)
 };
 
 /**
@@ -152,6 +157,94 @@ const STATIONARY_SUBCATEGORY_CATEGORIES: Record<string, string> = {
   MARKER: '61781', // Collectibles > Pens & Writing Instruments > Pens > Markers
   INK: '49004', // Collectibles > Pens & Writing Instruments > Ink
   NOTEBOOK: '159903', // Office Products > Paper, Notebooks & Pads
+};
+
+/**
+ * eBay Condition Descriptor Value IDs for Professional Grader (27501)
+ * Maps grading company codes to eBay descriptor value IDs
+ * Reference: https://developer.ebay.com/api-docs/user-guides/static/mip-user-guide/mip-enum-condition-descriptor-ids-for-trading-cards.html
+ */
+const EBAY_GRADER_VALUE_IDS: Record<string, string> = {
+  PSA: '275010',
+  BCCG: '275011',
+  BVG: '275012',
+  BGS: '275013',
+  CSG: '275014',
+  CGC: '275015',
+  SGC: '275016',
+  KSA: '275017',
+  GMA: '275018',
+  HGA: '275019',
+};
+
+/**
+ * eBay Condition Descriptor Value IDs for Grade (27502)
+ * Maps numeric grades to eBay descriptor value IDs
+ */
+const EBAY_GRADE_VALUE_IDS: Record<string, string> = {
+  '10': '275020',
+  '9.5': '275021',
+  '9': '275022',
+  '8.5': '275023',
+  '8': '275024',
+  '7.5': '275025',
+  '7': '275026',
+  '6.5': '275027',
+  '6': '275028',
+  '5.5': '275029',
+  '5': '2750210',
+  '4.5': '2750211',
+  '4': '2750212',
+  '3.5': '2750213',
+  '3': '2750214',
+  '2.5': '2750215',
+  '2': '2750216',
+  '1.5': '2750217',
+  '1': '2750218',
+};
+
+/**
+ * eBay Condition Descriptor Value IDs for ungraded Card Condition (40001)
+ *
+ * IMPORTANT: Categories 183454, 183444, 38292 (Collectible Card Games) use:
+ *   400010 = Near Mint or Better
+ *   400015 = Lightly Played (Excellent)
+ *   400016 = Moderately Played (Very Good)
+ *   400017 = Heavily Played (Poor)
+ *
+ * Categories 183050, 261328 (Sports/Non-Sports Trading Cards) use:
+ *   400010 = Near Mint or Better
+ *   400011 = Excellent
+ *   400012 = Very Good
+ *   400013 = Poor
+ *
+ * Reference: https://developer.ebay.com/api-docs/user-guides/static/mip-user-guide/mip-enum-condition-descriptor-ids-for-trading-cards.html
+ */
+const EBAY_CCG_CARD_CONDITION_VALUE_IDS: Record<string, string> = {
+  N: '400010',   // Near Mint or Better
+  S: '400010',   // Near Mint or Better
+  A: '400015',   // Lightly Played (Excellent)
+  B: '400016',   // Moderately Played (Very Good)
+  C: '400017',   // Heavily Played (Poor)
+  D: '400017',   // Heavily Played (Poor)
+  JUNK: '400017', // Heavily Played (Poor)
+};
+
+/**
+ * eBay Game item specific values for TCG categories
+ * These must match eBay's accepted values exactly
+ */
+const EBAY_TCG_GAME_NAMES: Record<string, string> = {
+  POKEMON: 'Pokémon TCG',
+  YUGIOH: 'Yu-Gi-Oh! TCG',
+  ONE_PIECE: 'One Piece Card Game',
+  MAGIC: 'Magic: The Gathering',
+  WEISS_SCHWARZ: 'Weiss Schwarz',
+  DRAGON_BALL: 'Dragon Ball Super Card Game',
+  DIGIMON: 'Digimon',
+  VANGUARD: 'Cardfight!! Vanguard',
+  UNION_ARENA: 'Union Arena',
+  DUEL_MASTERS: 'Duel Masters',
 };
 
 /**
@@ -258,9 +351,20 @@ const NICHE_CONDITION_STRATEGY: Record<string, keyof typeof CONDITION_MAPPINGS> 
  *
  * @param rank - Condition rank from Hard-Off (N, S, A, B, C, D, JUNK)
  * @param nicheType - Product niche type
+ * @param isGraded - Whether the item is professionally graded (PSA, BGS, etc.)
  * @returns eBay condition ID
  */
-function mapToEBayCondition(rank?: string, nicheType?: string): string {
+function mapToEBayCondition(rank?: string, nicheType?: string, isGraded?: boolean): string {
+  // Graded cards use ConditionID 2750 (Graded - Certified)
+  if (isGraded) {
+    return '2750';
+  }
+
+  // TCG categories (183454, etc.) only accept 4000 for ungraded cards
+  if (nicheType === 'TCG') {
+    return '4000';
+  }
+
   const strategy = nicheType ? NICHE_CONDITION_STRATEGY[nicheType] : 'STANDARD';
   const conditionMap = CONDITION_MAPPINGS[strategy] || CONDITION_MAPPINGS.STANDARD;
 
@@ -268,9 +372,34 @@ function mapToEBayCondition(rank?: string, nicheType?: string): string {
 }
 
 /**
+ * Map condition rank to TCG card condition text (matching eBay CCG descriptor labels)
+ */
+function mapTCGConditionToText(rank?: string, isGraded?: boolean, gradingCompany?: string, grade?: number): string {
+  if (isGraded) {
+    const company = gradingCompany || 'PSA';
+    const gradeStr = grade ? String(grade) : '';
+    return `Graded - ${company} ${gradeStr}`.trim();
+  }
+
+  const conditionMap: Record<string, string> = {
+    N: 'Near Mint or Better',
+    S: 'Near Mint or Better',
+    A: 'Lightly Played (Excellent)',
+    B: 'Moderately Played (Very Good)',
+    C: 'Heavily Played (Poor)',
+    D: 'Heavily Played (Poor)',
+    JUNK: 'Heavily Played (Poor)',
+  };
+
+  return rank ? (conditionMap[rank] || 'Near Mint or Better') : 'Near Mint or Better';
+}
+
+/**
  * Generate eBay-compliant product description
  */
 function generateEBayDescription(listing: MarketListing): string {
+  const { attributes, niche_type } = listing;
+
   const nicheDescriptions: Record<string, string> = {
     WATCH: 'Authentic Pre-Owned Luxury Watch',
     CAMERA_GEAR: 'Professional Camera Equipment',
@@ -281,7 +410,12 @@ function generateEBayDescription(listing: MarketListing): string {
     COLLECTION_FIGURES: 'Authentic Collectible Figure from Japan',
   };
 
-  const title = nicheDescriptions[listing.niche_type] || 'Authentic Pre-Owned Item';
+  const title = nicheDescriptions[niche_type] || 'Authentic Pre-Owned Item';
+
+  // Use TCG-specific condition text for card listings
+  const conditionText = niche_type === 'TCG'
+    ? mapTCGConditionToText(attributes.condition_rank, attributes.is_graded, attributes.grading_company, attributes.grade)
+    : mapConditionToText(attributes.condition_rank);
 
   // eBay allows HTML in descriptions
   const description = `
@@ -292,7 +426,7 @@ function generateEBayDescription(listing: MarketListing): string {
 
   <h3>Item Details</h3>
   <ul>
-    <li><strong>Condition:</strong> ${mapConditionToText(listing.attributes.condition_rank)}</li>
+    <li><strong>Condition:</strong> ${conditionText}</li>
   </ul>
 
   <h3>Shipping & Packaging</h3>
@@ -507,7 +641,7 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
   const shippingCost = getShippingCost(listing.niche_type);
 
   // Calculate sale price with desired net margin
-  const priceUSD = calculateSalePriceWithMargin(costUSD, netMarginPercent, shippingCost).toFixed(2);
+  const priceUSD = Math.round(calculateSalePriceWithMargin(costUSD, netMarginPercent, shippingCost)).toFixed(2);
 
   // Determine eBay category (use subcategory for luxury items, videogames, stationary, and game for TCG)
   let ebayCategory: string;
@@ -544,7 +678,7 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
     'PicURL': listing.image_urls.slice(0, 12).join('|'),
 
     // Item specifics
-    'ConditionID': mapToEBayCondition(attributes.condition_rank, listing.niche_type),
+    'ConditionID': mapToEBayCondition(attributes.condition_rank, listing.niche_type, attributes.is_graded),
     'C:Model': attributes.model || attributes.model_number || attributes.reference_number || 'See description',
     'C:Type': attributes.subcategory || listing.niche_type,
 
@@ -642,12 +776,32 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
     row['C:Optical Zoom'] = 'See description';
   } else if (listing.niche_type === 'TCG') {
     // Trading Card Games - Categories vary by game (Pokemon, Yu-Gi-Oh!, One Piece, Magic)
-    // Item specifics: Card Name, Card Number, Set, Rarity, Language
+    // Item specifics: Game (required), Card Name, Card Number, Set, Rarity, Language
+    row['C:Game'] = attributes.tcg_game
+      ? EBAY_TCG_GAME_NAMES[attributes.tcg_game] || 'Trading Card Game'
+      : 'Trading Card Game';
     row['C:Card Name'] = listing.title.substring(0, 50);
     row['C:Card Number'] = attributes.card_number || 'See description';
     row['C:Set'] = attributes.set_code || attributes.set || 'See description';
     row['C:Rarity'] = attributes.rarity || 'See description';
-    row['C:Language'] = attributes.language || 'Japanese'; // Default for Japanese marketplace
+    row['C:Language'] = attributes.language || 'JP'; // Default for Japanese marketplace
+
+    // Condition descriptor fields
+    if (!attributes.is_graded) {
+      // Ungraded: Card Condition descriptor (required when ConditionID=4000)
+      const condRank = attributes.condition_rank || 'A';
+      row['CD:Card Condition - (ID: 40001)'] = EBAY_CCG_CARD_CONDITION_VALUE_IDS[condRank] || '400010';
+    }
+    if (attributes.is_graded) {
+      const graderCode = attributes.grading_company || 'PSA';
+      row['CD:Professional Grader - (ID: 27501)'] = EBAY_GRADER_VALUE_IDS[graderCode] || EBAY_GRADER_VALUE_IDS['PSA'];
+      row['CD:Grade - (ID: 27502)'] = attributes.grade
+        ? EBAY_GRADE_VALUE_IDS[String(attributes.grade)] || String(attributes.grade)
+        : '';
+      if (attributes.cert_number) {
+        row['CDA:Certification Number - (ID: 27503)'] = attributes.cert_number;
+      }
+    }
   } else if (listing.niche_type === 'STATIONARY') {
     // Stationary - Category 159912 (Pens & Writing Instruments)
     // Item specifics: Ink Color, Point Size, Features
@@ -784,12 +938,17 @@ export async function exportToEBayCSV(
       'C:Series',
       'C:Megapixels',
       'C:Optical Zoom',
-      // Pokemon card fields
+      // TCG card fields
+      'C:Game',
       'C:Card Name',
       'C:Card Number',
       'C:Set',
       'C:Rarity',
       'C:Language',
+      'CD:Card Condition - (ID: 40001)',
+      'CD:Professional Grader - (ID: 27501)',
+      'CD:Grade - (ID: 27502)',
+      'CDA:Certification Number - (ID: 27503)',
       // Stationary fields
       'C:Ink Color',
       'C:Point Size',
@@ -1008,7 +1167,6 @@ function generateShopifyDescription(listing: MarketListing): string {
 
     // Grading information
     if (attributes.is_graded) {
-      description += `<li><strong>Graded:</strong> Yes</li>`;
       if (attributes.grading_company) {
         const companyName = GRADING_COMPANY_NAMES[attributes.grading_company as GradingCompany] || attributes.grading_company;
         description += `<li><strong>Grading Company:</strong> ${companyName}</li>`;
@@ -1024,8 +1182,11 @@ function generateShopifyDescription(listing: MarketListing): string {
     description += `</ul>`;
   }
 
-  // Condition
-  if (attributes.condition_rank) {
+  // Condition - use TCG-specific terminology for card listings
+  if (niche_type === 'TCG') {
+    description += `<h3>Condition</h3>`;
+    description += `<p>${mapTCGConditionToText(attributes.condition_rank, attributes.is_graded, attributes.grading_company, attributes.grade)}</p>`;
+  } else if (attributes.condition_rank) {
     description += `<h3>Condition</h3>`;
     description += `<p>${mapConditionToText(attributes.condition_rank)}</p>`;
   }
@@ -1195,7 +1356,7 @@ function listingToShopifyRow(
     'Variant Inventory Qty': '1',
     'Variant Inventory Policy': 'deny',
     'Variant Fulfillment Service': 'manual',
-    'Variant Price': priceUSD.toFixed(2),
+    'Variant Price': Math.round(priceUSD).toFixed(2),
     'Variant Compare At Price': '',
     'Variant Requires Shipping': 'true',
     'Variant Taxable': 'true',

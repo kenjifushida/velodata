@@ -370,12 +370,12 @@ def create_hardoff_listing(
 
 def create_mercari_listing(
     external_id: str,
-    niche_type: Literal["TCG", "WATCH", "CAMERA_GEAR"],
+    niche_type: Literal["TCG", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "VIDEOGAME", "STATIONARY", "COLLECTION_FIGURES"],
     title: str,
     price_jpy: int,
     url: str,
     attributes: Dict[str, Any],
-    image_url: Optional[str] = None,
+    image_urls: Optional[List[str]] = None,
     listed_at: Optional[datetime] = None,
     scrape_session_id: Optional[str] = None,
 ) -> MarketListing:
@@ -383,18 +383,35 @@ def create_mercari_listing(
     Factory function for creating Mercari JP market listings.
 
     Args:
-        external_id: Mercari's internal product ID
+        external_id: Mercari's internal product ID (e.g., "m30222262807")
         niche_type: Product category
         title: Product title (Japanese)
         price_jpy: Price in Yen
         url: Direct URL to listing
         attributes: Niche-specific attributes
-        image_url: Product image URL
+        image_urls: List of product image URLs
         listed_at: When the seller originally listed the item (if available)
         scrape_session_id: Scraping session correlation ID
 
     Returns:
         MarketListing instance
+
+    Example:
+        listing = create_mercari_listing(
+            external_id="m30222262807",
+            niche_type="TCG",
+            title="PSA10 ピカチュウex RR sv2a 247/190",
+            price_jpy=6000,
+            url="https://jp.mercari.com/item/m30222262807",
+            image_urls=["https://static.mercdn.net/item/detail/orig/photos/m30222262807_1.jpg"],
+            attributes={
+                "game": "POKEMON",
+                "set_code": "sv2a",
+                "is_graded": True,
+                "grading_company": "PSA",
+                "grade": 10,
+            }
+        )
     """
     return MarketListing(
         _id=f"MERCARI_JP_{external_id}",
@@ -403,7 +420,7 @@ def create_mercari_listing(
         title=title,
         price_jpy=price_jpy,
         url=url,
-        image_url=image_url,
+        image_urls=image_urls or [],
         listed_at=listed_at,
         attributes=attributes,
         scrape_session_id=scrape_session_id,
