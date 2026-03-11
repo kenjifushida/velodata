@@ -22,7 +22,7 @@ import type { TCGGame, GradingCompany, NicheType } from '@/lib/models/market-lis
  */
 interface EBayCSVRow {
   // Required fields
-  '*Action(SiteID=US|Country=US|Currency=USD|Version=1193)': string;
+  '*Action(SiteID=US|Country=JP|Currency=USD|Version=1193)': string;
   '*Category': string;
   '*Title': string;
   '*StartPrice': string;
@@ -433,6 +433,11 @@ function generateEBayDescription(listing: MarketListing): string {
   <p>All items are carefully inspected, authenticated, and securely packaged with bubble wrap and
   protective materials to ensure safe international delivery.</p>
 
+  <h3>Return Policy</h3>
+  <p><strong>Returns are only accepted if you have an unboxing video.</strong> To be eligible for a return,
+  you must record a continuous, unedited video of yourself opening the package from the moment it is received.
+  No video = no return. This protects both parties.</p>
+
   <p><em>All items are sold as-is. Please review the condition grade and photos carefully before purchase.</em></p>
 </div>
   `.trim();
@@ -659,14 +664,14 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
 
   const row: EBayCSVRow = {
     // Required fields
-    '*Action(SiteID=US|Country=US|Currency=USD|Version=1193)': 'Add',
+    '*Action(SiteID=US|Country=JP|Currency=USD|Version=1193)': 'Add',
     '*Category': ebayCategory,
     '*Title': title.substring(0, 80), // eBay title limit is 80 characters (uses English if available)
     '*StartPrice': priceUSD,
     '*Quantity': '1',
     '*Format': 'FixedPrice',
     '*Duration': 'GTC', // Good 'Til Cancelled
-    '*Location': 'Tokyo, Japan',
+    '*Location': 'Tokyo',
     '*Description': generateEBayDescription(listing),
 
     // Product identifiers
@@ -905,7 +910,7 @@ export async function exportToEBayCSV(
     // Define CSV headers (eBay File Exchange format)
     // Includes all possible fields for all niches - eBay ignores unused fields
     const headers = [
-      '*Action(SiteID=US|Country=US|Currency=USD|Version=1193)',
+      '*Action(SiteID=US|Country=JP|Currency=USD|Version=1193)',
       '*Category',
       '*Title',
       '*StartPrice',

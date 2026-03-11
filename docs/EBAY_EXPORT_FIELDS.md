@@ -26,7 +26,7 @@ These fields are included in every export regardless of niche:
 | `*Quantity` | ✅ | Number of items | `1` |
 | `*Format` | ✅ | Listing format | `FixedPrice` |
 | `*Duration` | ✅ | Listing duration | `GTC` (Good 'Til Cancelled) |
-| `*Location` | ✅ | Ship from location | `Tokyo, Japan` |
+| `*Location` | ✅ | Ship from location | `Tokyo` |
 | `*Description` | ✅ | HTML description | `<div>...</div>` |
 | `C:Brand` | ✅ | Brand name | `Rolex` |
 | `Product:UPC` | ✅ | UPC code | `Does not apply` |
@@ -61,7 +61,7 @@ These fields are included in every export regardless of niche:
 
 **Example CSV Row:**
 ```csv
-Add,31387,Rolex Submariner 116610LN,8450.25,1,FixedPrice,GTC,"Tokyo, Japan",...,Rolex,...,Stainless Steel,Stainless Steel,Automatic,Black,...
+Add,31387,Rolex Submariner 116610LN,8450.25,1,FixedPrice,GTC,"Tokyo",...,Rolex,...,Stainless Steel,Stainless Steel,Automatic,Black,...
 ```
 
 ---
@@ -78,7 +78,7 @@ Add,31387,Rolex Submariner 116610LN,8450.25,1,FixedPrice,GTC,"Tokyo, Japan",...,
 
 **Example CSV Row:**
 ```csv
-Add,15230,Canon EOS R5 Mirrorless Camera,2845.50,1,FixedPrice,GTC,"Tokyo, Japan",...,Canon,...,EOS,See description,See description,...
+Add,15230,Canon EOS R5 Mirrorless Camera,2845.50,1,FixedPrice,GTC,"Tokyo",...,Canon,...,EOS,See description,See description,...
 ```
 
 ---
@@ -97,7 +97,7 @@ Add,15230,Canon EOS R5 Mirrorless Camera,2845.50,1,FixedPrice,GTC,"Tokyo, Japan"
 
 **Example CSV Row:**
 ```csv
-Add,183454,Pikachu ex RR sv2a 165/165,45.75,1,FixedPrice,GTC,"Tokyo, Japan",...,Pokemon,...,Pikachu ex,165,sv2a,RR,Japanese,...
+Add,183454,Pikachu ex RR sv2a 165/165,45.75,1,FixedPrice,GTC,"Tokyo",...,Pokemon,...,Pikachu ex,165,sv2a,RR,Japanese,...
 ```
 
 ---
@@ -128,7 +128,7 @@ Add,183454,Pikachu ex RR sv2a 165/165,45.75,1,FixedPrice,GTC,"Tokyo, Japan",...,
 
 **Example CSV Row (Bag):**
 ```csv
-Add,169291,Louis Vuitton Neverfull MM,1245.00,1,FixedPrice,GTC,"Tokyo, Japan",...,Louis Vuitton,...,Brown,Canvas,Women,Shoulder Bag,...
+Add,169291,Louis Vuitton Neverfull MM,1245.00,1,FixedPrice,GTC,"Tokyo",...,Louis Vuitton,...,Brown,Canvas,Women,Shoulder Bag,...
 ```
 
 ---
@@ -154,7 +154,7 @@ Add,169291,Louis Vuitton Neverfull MM,1245.00,1,FixedPrice,GTC,"Tokyo, Japan",..
 
 **Example CSV Row:**
 ```csv
-Add,171831,Nintendo Game Boy DGM-01,164.87,1,FixedPrice,GTC,"Tokyo, Japan",...,Nintendo,...,Nintendo Game Boy,Console,...
+Add,171831,Nintendo Game Boy DGM-01,164.87,1,FixedPrice,GTC,"Tokyo",...,Nintendo,...,Nintendo Game Boy,Console,...
 ```
 
 ---
@@ -182,7 +182,7 @@ Add,171831,Nintendo Game Boy DGM-01,164.87,1,FixedPrice,GTC,"Tokyo, Japan",...,N
 
 **Example CSV Row:**
 ```csv
-Add,61778,Montblanc Meisterstück 149,245.67,1,FixedPrice,GTC,"Tokyo, Japan",...,Montblanc,...,Black,Medium,Refillable,...
+Add,61778,Montblanc Meisterstück 149,245.67,1,FixedPrice,GTC,"Tokyo",...,Montblanc,...,Black,Medium,Refillable,...
 ```
 
 ---
@@ -207,7 +207,7 @@ Add,61778,Montblanc Meisterstück 149,245.67,1,FixedPrice,GTC,"Tokyo, Japan",...
 
 **Example CSV Row:**
 ```csv
-Add,261068,Nendoroid Hatsune Miku,85.50,1,FixedPrice,GTC,"Tokyo, Japan",...,Good Smile Company,...,Hatsune Miku,Anime,Non-Scale,PVC,...
+Add,261068,Nendoroid Hatsune Miku,85.50,1,FixedPrice,GTC,"Tokyo",...,Good Smile Company,...,Hatsune Miku,Anime,Non-Scale,PVC,...
 ```
 
 ---

@@ -126,12 +126,12 @@ INCLUDE ONLY (if present in input):
 - Model numbers: 116610LN, EOS R5, A7R IV
 - Set codes: sv2a, sv3a, OP09, OP01
 - Card numbers: #165, 247/190, 036
-- Rarity: SR, SAR, UR, RR, AR, SSR
-- Grading: PSA10, BGS 9.5, CGC 9 (ONLY if explicitly stated)
+- Rarity: SR, SAR, UR, RR, AR, SSR, SEC, SP, SIR, IR
+- Grading: PSA 10, BGS 9.5, CGC 9 (ONLY if explicitly stated)
 
 STRICTLY REMOVE (never include):
 - Shipping: 即日発送, 送料無料, 匿名配送, ネコポス
-- Condition: 美品, 良品, 新品, 中古, 傷あり, 状態良好
+- Condition words: 美品, 良品, 新品, 中古, 傷あり, 状態良好, NM, Near Mint (unless graded)
 - Packaging: スリーブ, ローダー, ケース付き, 箱付き, 箱なし, 開封品
 - Seller notes: 自引き, 開封後, 写真のもの, 付属品完備
 - Stats: シャッター数, 使用回数
@@ -140,16 +140,48 @@ CRITICAL RULES:
 1. NEVER add PSA/BGS grades unless explicitly written in input
 2. NEVER add condition words (Excellent, Good, New, Used, Opened, Sealed)
 3. NEVER add packaging info (Box, Case, Sleeve)
-4. Translate character names correctly: リザードン=Charizard, ミュウツー=Mewtwo
+4. Translate character names correctly: リザードン=Charizard, ミュウツー=Mewtwo, ゾロ=Zoro, ルフィ=Luffy, ナミ=Nami, ハンコック=Hancock, シャンクス=Shanks, エース=Ace, ヤマト=Yamato, ロー=Law, キッド=Kid, カイドウ=Kaido, ビッグマム=Big Mom, ティーチ=Blackbeard, ミホーク=Mihawk, チョッパー=Chopper
 
-EXAMPLES:
-"【即日発送】ポケモンカード ピカチュウex SAR sv3a 247/190 美品" → "Pokemon Card Pikachu ex SAR sv3a #247"
+━━━ TCG TITLE FORMAT (apply when context is trading cards / TCG) ━━━
+
+For ALL TCG card titles, output EXACTLY this order (eBay-optimized, max 80 chars):
+[Game Name] [Character Name] [Card Number] [Rarity] Japanese [PSA/Grade if graded]
+
+GAME NAME rules:
+- One Piece cards → "One Piece Card Game" (never "OPCG" or "ワンピース")
+- Pokemon cards → "Pokemon Card" (never "ポケモン" or "Pocket Monsters")
+- Yu-Gi-Oh → "Yu-Gi-Oh"
+
+RARITY rules — always abbreviate (buyers search abbreviations, not full names):
+- One Piece: SEC, SAR, SP, SR, R, L (Leader), UC, C
+  → コミパラ / スーパーパラレル = "Super Parallel" (keep full — this IS the product differentiator)
+  → コミックパラレル = "Comic Parallel"
+- Pokemon: SAR, SIR, IR, SR, RR, AR, ex, VMAX, VSTAR
+
+ALWAYS append "Japanese" after the rarity — it is a critical search keyword for international buyers.
+
+ONLY append grade (PSA 10, BGS 9.5, CGC 9) if explicitly stated in the input.
+
+TCG EXAMPLES:
+"トニートニー・チョッパー SR スーパーパラレル(コミパラ) EB01-006" → "One Piece Card Game Chopper EB01-006 SR Super Parallel Japanese"
+"ワンピースカードゲーム ミホーク OP14-119 SEC コミパラ" → "One Piece Card Game Mihawk OP14-119 SEC Comic Parallel Japanese"
+"ロロノアゾロ スーパーパラレル コミパラ ワンピースカード" → "One Piece Card Game Zoro Super Parallel Japanese"
+"トラファルガー・ロー SEC スーパーパラレル(コミパラ) OP10-119" → "One Piece Card Game Law OP10-119 SEC Super Parallel Japanese"
+"ポケモンカード ピカチュウex SAR sv3a 247/190 美品" → "Pokemon Card Pikachu ex 247/190 SAR sv3a Japanese"
+"PSA10 ワンピースカードゲーム シャンクス OP01-120 SEC" → "One Piece Card Game Shanks OP01-120 SEC Japanese PSA 10"
+"ワンピースカード 神の島の冒険 ボア・ハンコック SP OP-12-014" → "One Piece Card Game Boa Hancock OP12-014 SP Japanese"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+NON-TCG EXAMPLES:
 "ロレックス サブマリーナ 116610LN 美品 箱付き" → "Rolex Submariner 116610LN"
 "Canon EOS R5 ボディ 美品" → "Canon EOS R5 Body"
-"PSA10 ワンピースカード ナミ OP09-036 SR" → "One Piece Card Nami OP09-036 SR PSA10"
 "ワンピース ナミ フィギュア Portrait.Of.Pirates 開封品" → "One Piece Nami Figure Portrait.Of.Pirates"
 
-Output ONLY the clean title."""
+Output ONLY the clean title. No explanation, no punctuation at the end."""
+
+    # Context strings that trigger TCG title formatting
+    _TCG_CONTEXTS = {"trading card", "trading cards", "tcg", "collectible", "collectibles"}
 
     def build_prompt(
         self,
@@ -167,12 +199,18 @@ Output ONLY the clean title."""
         Returns:
             Formatted prompt
         """
-        prompt = f"Translate to English:\n{text}"
+        is_tcg = context and any(kw in context.lower() for kw in self._TCG_CONTEXTS)
+
+        if is_tcg:
+            return (
+                f"[Context: TCG card listing — apply TCG TITLE FORMAT]\n"
+                f"Translate to English:\n{text}"
+            )
 
         if context:
-            prompt = f"[Context: {context}]\n{prompt}"
+            return f"[Context: {context}]\nTranslate to English:\n{text}"
 
-        return prompt
+        return f"Translate to English:\n{text}"
 
     def parse_response(
         self,

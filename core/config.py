@@ -21,15 +21,19 @@ class Config:
     DATABASE_NAME: str = os.getenv("DATABASE_NAME", "velodata")
 
     # LLM Configuration
-    # OpenRouter (preferred - cloud-based, no local setup required)
-    OPEN_ROUTER_API_KEY: str = os.getenv("OPEN_ROUTER_API_KEY", "")
-    OPEN_ROUTER_BASE_URL: str = os.getenv("OPEN_ROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    # Gemini (preferred - direct Google API, free tier available)
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai"
 
     # Ollama (fallback - requires local installation)
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
-    # Model settings (used by both providers)
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "google/gemini-2.0-flash-exp:free")
+    # Model settings (used by all providers)
+    # Free tier model options (Gemini AI Studio):
+    #   gemini-2.5-flash-lite  → 15 RPM | 250,000 TPM | 1,000 RPD  (recommended)
+    #   gemini-2.5-flash       → 10 RPM | 250,000 TPM |   250 RPD
+    #   gemini-2.5-pro         →  5 RPM | 250,000 TPM |   100 RPD
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-2.5-flash-lite")
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.1"))
     LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "1024"))
 
