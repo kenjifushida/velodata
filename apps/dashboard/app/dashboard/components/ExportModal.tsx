@@ -11,12 +11,15 @@ import { useState, useEffect, useRef } from 'react';
 
 export type ExportPlatform = 'ebay' | 'shopify';
 
+const HANDLING_TIME_OPTIONS = [1, 3, 5, 7] as const;
+export type HandlingTime = (typeof HANDLING_TIME_OPTIONS)[number];
+
 export interface ExportModalProps {
   isOpen: boolean;
   itemCount: number;
   averagePrice: number;
   averageShippingCost: number;
-  onConfirm: (platform: ExportPlatform, margin: number) => void;
+  onConfirm: (platform: ExportPlatform, margin: number, handlingTime: HandlingTime) => void;
   onCancel: () => void;
 }
 
@@ -47,6 +50,7 @@ export function ExportModal({
   const [step, setStep] = useState<1 | 2>(1);
   const [selectedPlatform, setSelectedPlatform] = useState<ExportPlatform | null>(null);
   const [desiredMargin, setDesiredMargin] = useState<string>('25');
+  const [handlingTime, setHandlingTime] = useState<HandlingTime>(3);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Reset state when modal opens/closes
@@ -55,6 +59,7 @@ export function ExportModal({
       setStep(1);
       setSelectedPlatform(null);
       setDesiredMargin('25');
+      setHandlingTime(3);
     }
   }, [isOpen]);
 
@@ -161,7 +166,7 @@ export function ExportModal({
       alert('Please enter a margin between 0% and 500%');
       return;
     }
-    onConfirm(selectedPlatform, marginPercent);
+    onConfirm(selectedPlatform, marginPercent, handlingTime);
   };
 
   const pricing = selectedPlatform === 'ebay' ? calculateEBayPricing() : calculateShopifyPricing();
@@ -302,6 +307,32 @@ export function ExportModal({
                     : 'Net profit margin after all fees and shipping costs'}
                 </p>
               </div>
+
+              {/* Handling Time (eBay only) */}
+              {selectedPlatform === 'ebay' && (
+                <div className="mt-5">
+                  <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    Handling Time
+                  </label>
+                  <div className="mt-2 flex gap-2">
+                    {HANDLING_TIME_OPTIONS.map((days) => (
+                      <button
+                        key={days}
+                        type="button"
+                        onClick={() => setHandlingTime(days)}
+                        className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                          handlingTime === days
+                            ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-900/30 dark:text-blue-300'
+                            : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:bg-zinc-800'
+                        }`}
+                      >
+                        {days}d
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-xs text-zinc-500">Business days to dispatch after payment</p>
+                </div>
+              )}
 
               {/* Pricing Breakdown */}
               <div className="mt-5 rounded-xl bg-zinc-50 p-4 dark:bg-zinc-800/50">

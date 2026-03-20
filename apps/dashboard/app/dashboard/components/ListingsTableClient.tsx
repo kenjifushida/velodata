@@ -56,14 +56,14 @@ export function ListingsTableClient({ listings }: ListingsTableClientProps) {
     setShowExportModal(true);
   };
 
-  const handleExportConfirm = async (platform: ExportPlatform, margin: number) => {
+  const handleExportConfirm = async (platform: ExportPlatform, margin: number, handlingTime: number) => {
     setShowExportModal(false);
     setIsExporting(true);
     setErrorMessage(null);
 
     try {
       const result = platform === 'ebay'
-        ? await exportToEBayCSV(Array.from(selectedIds), margin)
+        ? await exportToEBayCSV(Array.from(selectedIds), margin, handlingTime)
         : await exportToShopifyCSV(Array.from(selectedIds), margin);
 
       if (result.success && result.csv && result.filename) {

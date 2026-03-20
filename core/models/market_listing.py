@@ -203,7 +203,7 @@ class MarketListing(BaseModel):
     )
 
     # --- CLASSIFICATION ---
-    niche_type: Literal["TCG", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "VIDEOGAME", "STATIONARY", "COLLECTION_FIGURES"] = Field(
+    niche_type: Literal["TCG", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "VIDEOGAME", "STATIONARY", "COLLECTION_FIGURES", "DRINKWARE"] = Field(
         ...,
         description="Product niche type (must match canonical_products niche types)"
     )
@@ -311,7 +311,7 @@ class MarketListing(BaseModel):
 
 def create_hardoff_listing(
     external_id: str,
-    niche_type: Literal["TCG", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "VIDEOGAME"],
+    niche_type: Literal["TCG", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "VIDEOGAME", "DRINKWARE"],
     title: str,
     price_jpy: int,
     url: str,
@@ -370,7 +370,7 @@ def create_hardoff_listing(
 
 def create_mercari_listing(
     external_id: str,
-    niche_type: Literal["TCG", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "VIDEOGAME", "STATIONARY", "COLLECTION_FIGURES"],
+    niche_type: Literal["TCG", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "VIDEOGAME", "STATIONARY", "COLLECTION_FIGURES", "DRINKWARE"],
     title: str,
     price_jpy: int,
     url: str,
@@ -513,7 +513,7 @@ def create_map_camera_listing(
 
 def create_paypay_listing(
     external_id: str,
-    niche_type: Literal["TCG", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "VIDEOGAME", "STATIONARY", "COLLECTION_FIGURES"],
+    niche_type: Literal["TCG", "WATCH", "CAMERA_GEAR", "LUXURY_ITEM", "VIDEOGAME", "STATIONARY", "COLLECTION_FIGURES", "DRINKWARE"],
     title: str,
     price_jpy: int,
     url: str,
@@ -699,6 +699,53 @@ class TCGAttributes:
             "grade": attributes.get("grade"),
             "card_name_jp": attributes.get("card_name_jp"),
             "card_name_en": attributes.get("card_name_en"),
+        }
+
+
+class DrinkwareAttributes:
+    """
+    Helper class for type-safe drinkware attribute access.
+
+    Covers Japan-limited branded drinkware from brands like Starbucks, Disney,
+    Sanrio, and Studio Ghibli sold on Japanese marketplaces.
+
+    Common attributes:
+    - brand: Manufacturer/brand (e.g., "Starbucks", "Disney")
+    - series: Product line or collection (e.g., "JIMOTO Made", "Sakura 2025", "Bear")
+    - item_type: Type of drinkware (MUG, TUMBLER, THERMOS, CUP, BOTTLE, STRAW)
+    - region: Regional exclusivity (e.g., "Kyoto", "Osaka", "Tokyo", "Japan")
+    - capacity_ml: Volume in milliliters (e.g., 355, 473)
+    - material: Construction material (e.g., "Ceramic", "Stainless Steel", "Glass")
+    - color: Primary color (e.g., "Pink", "White", "Black")
+    - year: Release year (e.g., "2024", "2025")
+    - condition_rank: Japanese ranking (N, S, A, B, C, D, JUNK)
+    - box_included: Original box/packaging present
+    """
+
+    ITEM_TYPES = {"MUG", "TUMBLER", "THERMOS", "CUP", "BOTTLE", "STRAW"}
+
+    @staticmethod
+    def extract(attributes: Dict[str, Any]) -> Dict[str, Optional[str]]:
+        """
+        Extract drinkware attributes safely.
+
+        Args:
+            attributes: Raw attributes dictionary
+
+        Returns:
+            Dictionary with typed drinkware fields
+        """
+        return {
+            "brand": attributes.get("brand"),
+            "series": attributes.get("series"),
+            "item_type": attributes.get("item_type"),    # MUG, TUMBLER, THERMOS, CUP, BOTTLE
+            "region": attributes.get("region"),          # Regional exclusivity (e.g., "Kyoto")
+            "capacity_ml": attributes.get("capacity_ml"),
+            "material": attributes.get("material"),      # Ceramic, Stainless Steel, Glass
+            "color": attributes.get("color"),
+            "year": attributes.get("year"),
+            "condition_rank": attributes.get("condition_rank"),
+            "box_included": attributes.get("box_included"),
         }
 
 

@@ -87,7 +87,13 @@ interface EBayCSVRow {
   'C:Character'?: string;  // For action figures (261068)
   'C:Character Family'?: string;  // For action figures (261068)
   'C:Scale'?: string;  // For action figures (261068)
-  'C:Material'?: string;  // For action figures (261068)
+  'C:Material'?: string;  // For action figures (261068) and drinkware (46579)
+
+  // Drinkware specifics (category-dependent)
+  'C:Capacity'?: string;  // For mugs/cups (46579)
+  'C:Theme'?: string;  // For mugs/cups (46579) - series/collection name
+  'C:Country/Region of Manufacture'?: string;  // For mugs/cups (46579)
+  'C:Region of Origin'?: string;  // For regional exclusives (46579)
 
   // Shipping
   '*ShippingType': string;
@@ -113,6 +119,7 @@ const EBAY_CATEGORIES: Record<string, string> = {
   VIDEOGAME: '139971', // Video Game Consoles (default)
   STATIONARY: '61778', // Fountain Pens (default - leaf category)
   COLLECTION_FIGURES: '261068', // Anime & Manga Action Figures
+  DRINKWARE: '46579', // Collectibles > Kitchen & Home > Mugs, Cups & Steins
 };
 
 /**
@@ -321,7 +328,7 @@ const CONDITION_MAPPINGS: Record<string, ConditionMapping> = {
 
   // Restricted condition mapping for collectibles and electronics
   // eBay categories only accept: 1000, 1500, 3000, 7000
-  // Used by: VIDEOGAME, STATIONARY, COLLECTION_FIGURES
+  // Used by: VIDEOGAME, STATIONARY, COLLECTION_FIGURES, DRINKWARE
   RESTRICTED: {
     N: '1000',    // New
     S: '1500',    // New other (see details)
@@ -344,6 +351,7 @@ const NICHE_CONDITION_STRATEGY: Record<string, keyof typeof CONDITION_MAPPINGS> 
   VIDEOGAME: 'RESTRICTED',
   STATIONARY: 'RESTRICTED',
   COLLECTION_FIGURES: 'RESTRICTED',
+  DRINKWARE: 'RESTRICTED',
 };
 
 /**
@@ -408,6 +416,7 @@ function generateEBayDescription(listing: MarketListing): string {
     VIDEOGAME: 'Authentic Game Console from Japan',
     STATIONARY: 'Authentic Writing Instrument from Japan',
     COLLECTION_FIGURES: 'Authentic Collectible Figure from Japan',
+    DRINKWARE: 'Authentic Japan-Limited Drinkware',
   };
 
   const title = nicheDescriptions[niche_type] || 'Authentic Pre-Owned Item';
@@ -585,6 +594,7 @@ const SHIPPING_COSTS_BY_NICHE: Record<string, number> = {
   VIDEOGAME: 30.0,
   STATIONARY: 30.0,
   COLLECTION_FIGURES: 46.9, // ¥7,000 JPY = $46.90 USD (higher due to size/weight)
+  DRINKWARE: 46.9, // Mugs/tumblers are bulky — similar shipping cost to figures
 };
 
 /**
@@ -633,7 +643,7 @@ function getExportTitle(listing: MarketListing): string {
  * @param listing - Market listing to convert
  * @param netMarginPercent - Desired net profit margin after fees (default 25%)
  */
-function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25): EBayCSVRow {
+function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25, handlingTime: number = 1): EBayCSVRow {
   const { attributes } = listing;
 
   // Get title (prefer English translation)
@@ -691,7 +701,7 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
     '*ShippingType': 'Flat',
     'ShippingService-1:Option': 'ShippingMethodStandard',
     'ShippingService-1:Cost': '0.00', // Free shipping (cost included in item price)
-    'DispatchTimeMax': '7', // 7 business days to ship
+    'DispatchTimeMax': String(handlingTime),
 
     // Returns
     'ReturnsAcceptedOption': 'ReturnsAccepted',
@@ -849,6 +859,50 @@ function listingToEBayRow(listing: MarketListing, netMarginPercent: number = 25)
 
     // Material - typically PVC for Japanese figures
     row['C:Material'] = 'PVC';
+  } else if (listing.niche_type === 'DRINKWARE') {
+    // Drinkware item specifics - Category 46579 (Mugs, Cups & Steins)
+    const brand = attributes.brand || '';
+    const itemType = attributes.item_type || '';
+    const material = attributes.material || '';
+    const capacityMl = attributes.capacity_ml;
+    const series = attributes.series || '';
+    const region = attributes.region || '';
+
+    if (brand) {
+      row['C:Brand'] = brand;
+    }
+
+    // Type of drinkware (Mug, Tumbler, Thermos, etc.)
+    const itemTypeMap: Record<string, string> = {
+      MUG: 'Mug',
+      TUMBLER: 'Tumbler',
+      THERMOS: 'Thermos/Vacuum Bottle',
+      CUP: 'Cup',
+      BOTTLE: 'Water Bottle',
+      STRAW: 'Straw',
+    };
+    row['C:Type'] = itemTypeMap[itemType] || 'See description';
+
+    if (material) {
+      row['C:Material'] = material;
+    }
+
+    // Capacity in fluid ounces (eBay uses oz for US buyers)
+    if (capacityMl) {
+      const capacityOz = Math.round(Number(capacityMl) * 0.033814 * 10) / 10;
+      row['C:Capacity'] = `${capacityOz} fl oz`;
+    }
+
+    // Series/collection name is a key differentiator for Japan-limited items
+    if (series) {
+      row['C:Theme'] = series;
+    }
+
+    // Country of manufacture and regional exclusivity
+    row['C:Country/Region of Manufacture'] = 'Japan';
+    if (region && region.toLowerCase() !== 'japan') {
+      row['C:Region of Origin'] = region;
+    }
   }
 
   return row;
@@ -879,7 +933,8 @@ function objectToCSVLine(obj: any, headers: string[]): string {
  */
 export async function exportToEBayCSV(
   listingIds: string[],
-  netMarginPercent: number = 25
+  netMarginPercent: number = 25,
+  handlingTime: number = 1
 ): Promise<{ success: boolean; csv?: string; filename?: string; error?: string }> {
   try {
     if (!listingIds || listingIds.length === 0) {
@@ -905,7 +960,7 @@ export async function exportToEBayCSV(
     }
 
     // Convert to eBay CSV rows with specified margin
-    const csvRows = listings.map((listing) => listingToEBayRow(listing, netMarginPercent));
+    const csvRows = listings.map((listing) => listingToEBayRow(listing, netMarginPercent, handlingTime));
 
     // Define CSV headers (eBay File Exchange format)
     // Includes all possible fields for all niches - eBay ignores unused fields
@@ -1102,6 +1157,7 @@ const SHOPIFY_NICHE_CATEGORIES: Record<string, string> = {
   VIDEOGAME: 'Electronics > Video Game Consoles',
   STATIONARY: 'Office Supplies > Writing Instruments',
   COLLECTION_FIGURES: 'Toys & Games > Toys > Action Figures',
+  DRINKWARE: 'Home & Garden > Kitchen & Dining > Drinkware',
 };
 
 /**
@@ -1115,6 +1171,7 @@ const WEIGHT_BY_NICHE: Record<string, number> = {
   VIDEOGAME: 800,
   STATIONARY: 100,
   COLLECTION_FIGURES: 500,
+  DRINKWARE: 600, // Mugs/tumblers are heavier than figures
 };
 
 /**
